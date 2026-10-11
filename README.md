@@ -29,6 +29,8 @@ command line: `hrwm` is both the window manager and its `herbstclient`.
   - `keymap LAYOUT [VARIANT [OPTIONS]]` sets the keyboard layout
   - `input SETTING VALUE [DEVICE]` configures touchpads and mice (tap-to-click,
     disable-while-typing, natural scrolling, acceleration); `list_inputs` shows them
+  - fullscreen games that ask for tearing get it, for lower latency
+    (`allow_tearing`, on by default)
   - `jumpto urgent` (waiting on river to report urgency)
   - restarts keep the layout: hrwm saves its tags, frame trees and which
     window is where to `$XDG_RUNTIME_DIR/hrwm-$WAYLAND_DISPLAY.state`, and the

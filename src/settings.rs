@@ -142,6 +142,8 @@ pub struct Settings {
     pub smart_frame_surroundings: bool,
     pub smart_window_surroundings: bool,
     pub smart_gaps: bool,
+    /// let fullscreen windows that ask for it (games) tear for lower latency
+    pub allow_tearing: bool,
     pub default_direction_external_only: bool,
 }
 
@@ -173,6 +175,7 @@ impl Default for Settings {
             smart_frame_surroundings: false,
             smart_window_surroundings: false,
             smart_gaps: false,
+            allow_tearing: true,
             default_direction_external_only: false,
         }
     }
@@ -287,6 +290,7 @@ impl Settings {
             "swap_monitors_to_get_tag" => boolean!(swap_monitors_to_get_tag),
             "smart_window_surroundings" => boolean!(smart_window_surroundings),
             "smart_gaps" => boolean!(smart_gaps),
+            "allow_tearing" => boolean!(allow_tearing),
             "default_direction_external_only" => boolean!(default_direction_external_only),
             "smart_frame_surroundings" => {
                 // newer herbstluftwm uses off/hide_gaps/hide_all
@@ -338,6 +342,7 @@ impl Settings {
             "smart_frame_surroundings" => b(self.smart_frame_surroundings),
             "smart_window_surroundings" => b(self.smart_window_surroundings),
             "smart_gaps" => b(self.smart_gaps),
+            "allow_tearing" => b(self.allow_tearing),
             "default_direction_external_only" => b(self.default_direction_external_only),
             "default_frame_layout" => self.default_frame_layout.name().to_string(),
             "show_frame_decorations" => {

@@ -65,6 +65,8 @@ pub struct Win {
     pub fullscreen: bool,
     /// wants attention; cleared when focused
     pub urgent: bool,
+    /// the window asked for async (tearing) presentation, e.g. a game
+    wants_tearing: bool,
     /// output river currently shows the window fullscreen on
     fs_output: Option<ObjectId>,
     /// content geometry while floating
@@ -135,6 +137,8 @@ impl Tag {
 pub struct Monitor {
     obj: RiverOutputV1,
     pub oid: ObjectId,
+    /// presentation mode last sent; true = async
+    tearing: Option<bool>,
     wl: Option<WlOutput>,
     /// connector name like eDP-1, from wl_output
     pub name: String,
@@ -1513,7 +1517,30 @@ impl Wm {
         for id in &self.stack {
             self.wins[id].node.place_top();
         }
+        self.update_tearing();
         self.render_decorations();
+    }
+
+    /// An output tears only while it shows a fullscreen window that asked
+    /// for it (games, for lower latency); otherwise it stays on vsync.
+    fn update_tearing(&mut self) {
+        let allowed = self.settings.allow_tearing;
+        for m in &mut self.monitors {
+            let want = allowed
+                && self.wins.values().any(|w| {
+                    w.place == Place::Fullscreen
+                        && w.wants_tearing
+                        && w.fs_output.as_ref() == Some(&m.oid)
+                });
+            if m.tearing != Some(want) {
+                m.obj.set_presentation_mode(if want {
+                    river_output_v1::PresentationMode::Async
+                } else {
+                    river_output_v1::PresentationMode::Vsync
+                });
+                m.tearing = Some(want);
+            }
+        }
     }
 
     fn render_decorations(&mut self) {
@@ -1703,6 +1730,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for Wm {
                         pseudotile: false,
                         fullscreen: false,
                         urgent: false,
+                        wants_tearing: false,
                         fs_output: None,
                         float_rect: None,
                         natural: None,
@@ -1728,6 +1756,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for Wm {
                 usable: None,
                 tag: 0,
                 prev_tag: None,
+                tearing: None,
                 removed: false,
                 new: true,
             }),
@@ -1811,6 +1840,12 @@ impl Dispatch<RiverWindowV1, ()> for Wm {
                 Event::ExitFullscreenRequested => w.req_fullscreen = Some(false),
                 Event::UnreliablePid { unreliable_pid } => w.pid = unreliable_pid,
                 Event::Identifier { identifier } => w.identifier = identifier,
+                Event::PresentationHint { hint } => {
+                    w.wants_tearing = matches!(
+                        hint,
+                        wayland_client::WEnum::Value(river_output_v1::PresentationMode::Async)
+                    );
+                }
                 _ => {}
             }
         }
