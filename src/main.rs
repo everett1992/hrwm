@@ -5,6 +5,7 @@
 //! running window manager, like herbstclient.
 
 mod commands;
+mod input;
 mod ipc;
 mod keymap;
 mod protocol;

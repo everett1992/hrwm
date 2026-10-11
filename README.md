@@ -27,6 +27,8 @@ command line: `hrwm` is both the window manager and its `herbstclient`.
   - an `auto` layout follows the frame's long axis
   - `smart_gaps` keeps one window gap between frames instead of two
   - `keymap LAYOUT [VARIANT [OPTIONS]]` sets the keyboard layout
+  - `input SETTING VALUE [DEVICE]` configures touchpads and mice (tap-to-click,
+    disable-while-typing, natural scrolling, acceleration); `list_inputs` shows them
   - `jumpto urgent` (waiting on river to report urgency)
 
 ## Install

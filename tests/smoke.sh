@@ -94,4 +94,9 @@ mapfile -t geoms < <("$hrwm" list_clients | cut -f4)
 "$hrwm" use two
 [[ $("$hrwm" attr tags.focus.name) == two ]] || fail "use"
 
+# input settings: accepted (a headless river has no libinput devices to show them)
+"$hrwm" input tap on || fail "input tap on"
+"$hrwm" input accel_speed 0.2 touchpad || fail "input accel_speed"
+if "$hrwm" input tap sideways 2>/dev/null; then fail "input accepted a bad value"; fi
+
 echo "smoke test passed"

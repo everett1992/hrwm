@@ -261,6 +261,7 @@ pub struct Wm {
     deco_plan: Vec<DecoPlan>,
     buffers: HashMap<[u32; 4], WlBuffer>,
     pub keymaps: crate::keymap::Keymaps,
+    pub inputs: crate::input::Inputs,
 }
 
 impl Wm {
@@ -308,6 +309,7 @@ impl Wm {
             deco_plan: Vec::new(),
             buffers: HashMap::new(),
             keymaps: Default::default(),
+            inputs: Default::default(),
         }
     }
 
@@ -1440,6 +1442,9 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Wm {
             "wp_viewporter" => state.viewporter = Some(registry.bind(name, 1, qh, ())),
             "river_input_manager_v1" => state.keymaps.input = Some(registry.bind(name, 1, qh, ())),
             "river_xkb_config_v1" => state.keymaps.config = Some(registry.bind(name, 1, qh, ())),
+            "river_libinput_config_v1" => {
+                state.inputs.config = Some(registry.bind(name, 1, qh, ()))
+            }
             "wp_single_pixel_buffer_manager_v1" => {
                 state.pixels = Some(registry.bind(name, 1, qh, ()))
             }

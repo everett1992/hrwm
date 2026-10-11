@@ -257,6 +257,8 @@ impl Wm {
                 self.binds_dirty = true;
             }
 
+            "input" => self.input_command(&a)?,
+            "list_inputs" => out.push_str(&self.inputs.list()),
             "keymap" => {
                 if a.is_empty() {
                     out.push_str(&self.keymaps.description);

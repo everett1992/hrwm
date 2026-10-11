@@ -8,7 +8,7 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::io::Write;
 use std::os::fd::{AsFd, FromRawFd, OwnedFd};
 
-use wayland_client::{Connection, Dispatch, QueueHandle, delegate_noop};
+use wayland_client::{Connection, Dispatch, QueueHandle};
 
 use crate::protocol::{
     river_input_device_v1::RiverInputDeviceV1,
@@ -221,8 +221,6 @@ impl Dispatch<RiverInputManagerV1, ()> for Wm {
         river_input_manager_v1::EVT_INPUT_DEVICE_OPCODE => (RiverInputDeviceV1, ()),
     ]);
 }
-
-delegate_noop!(Wm: ignore RiverInputDeviceV1);
 
 #[cfg(test)]
 mod tests {
