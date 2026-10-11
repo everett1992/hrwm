@@ -73,6 +73,10 @@ pub struct Win {
     pub float_rect: Option<Rect>,
     /// size the window picked itself when offered 0x0
     natural: Option<(i32, i32)>,
+    /// the window's min and max size hints; 0 means no limit
+    min_size: (i32, i32),
+    max_size: (i32, i32),
+    bounds_sent: Option<(i32, i32)>,
     dims: Option<(i32, i32)>,
     proposed: Option<(i32, i32)>,
     tiled_edges: Option<u32>,
@@ -87,6 +91,16 @@ pub struct Win {
 impl Win {
     pub fn hex_id(&self) -> String {
         format!("0x{:x}", self.id)
+    }
+
+    /// Keep a size within the window's own min/max hints.
+    pub fn fit(&self, size: (i32, i32)) -> (i32, i32) {
+        fit_size(size, self.min_size, self.max_size)
+    }
+
+    /// Windows whose min and max sizes are equal can't be resized.
+    pub fn fixed_size(&self) -> bool {
+        self.min_size.0 > 0 && self.min_size == self.max_size
     }
 
     /// Content geometry as last laid out (what render positions it at).
@@ -572,7 +586,7 @@ impl Wm {
             && let Place::Tiled { slot } = place
         {
             let content = slot.inset(self.settings.window_border_width);
-            let (nw, nh) = w.natural.unwrap_or((content.w, content.h));
+            let (nw, nh) = w.fit(w.natural.unwrap_or((content.w, content.h)));
             let (cx, cy) = content.center();
             w.float_rect = Some(Rect::new(cx - nw / 2, cy - nh / 2, nw, nh));
         }
@@ -1054,6 +1068,7 @@ impl Wm {
                 title: &w.title,
                 has_parent: w.parent.is_some(),
                 pid: w.pid,
+                fixed_size: w.fixed_size(),
             };
             let out = self.rules.apply(&props);
             w.floating = out.floating.unwrap_or(false) || out.manage == Some(false);
@@ -1173,15 +1188,19 @@ impl Wm {
             let r = match op.kind {
                 OpKind::Move => Rect::new(s.x + op.dx, s.y + op.dy, s.w, s.h),
                 OpKind::Resize { left, top } => {
-                    let nw = (if left { s.w - op.dx } else { s.w + op.dx }).max(20);
-                    let nh = (if top { s.h - op.dy } else { s.h + op.dy }).max(20);
+                    let (nw, nh) = w.fit((
+                        (if left { s.w - op.dx } else { s.w + op.dx }).max(20),
+                        (if top { s.h - op.dy } else { s.h + op.dy }).max(20),
+                    ));
                     let x = if left { s.x + s.w - nw } else { s.x };
                     let y = if top { s.y + s.h - nh } else { s.y };
                     Rect::new(x, y, nw, nh)
                 }
                 OpKind::Zoom { sx, sy } => {
-                    let nw = (s.w + 2 * sx * op.dx).max(20);
-                    let nh = (s.h + 2 * sy * op.dy).max(20);
+                    let (nw, nh) = w.fit((
+                        (s.w + 2 * sx * op.dx).max(20),
+                        (s.h + 2 * sy * op.dy).max(20),
+                    ));
                     let (cx, cy) = s.center();
                     Rect::new(cx - nw / 2, cy - nh / 2, nw, nh)
                 }
@@ -1282,13 +1301,17 @@ impl Wm {
                     };
                 }
                 let size = if tag_floating {
-                    w.float_rect.map(|r| (r.w, r.h)).unwrap_or((0, 0))
+                    w.float_rect.map(|r| w.fit((r.w, r.h))).unwrap_or((0, 0))
                 } else {
                     let c = t.rect.inset(bw);
                     let (cw, ch) = (c.w.max(1), c.h.max(1));
                     if w.pseudotile {
                         match w.natural.or(w.float_rect.map(|r| (r.w, r.h))) {
-                            Some((nw, nh)) => (nw.min(cw), nh.min(ch)),
+                            // within its own limits, but never beyond its frame
+                            Some(n) => {
+                                let (nw, nh) = w.fit(n);
+                                (nw.min(cw), nh.min(ch))
+                            }
                             None => (0, 0),
                         }
                     } else {
@@ -1296,6 +1319,7 @@ impl Wm {
                     }
                 };
                 propose(w, size);
+                set_bounds(w, area);
                 set_tiled(w, if tag_floating { 0 } else { 15 });
             }
             // tiled windows in tree order; in a max frame only the selected
@@ -1317,8 +1341,9 @@ impl Wm {
                 } else {
                     Place::Hidden
                 };
-                let size = w.float_rect.map(|r| (r.w, r.h)).unwrap_or((0, 0));
+                let size = w.float_rect.map(|r| w.fit((r.w, r.h))).unwrap_or((0, 0));
                 propose(w, size);
+                set_bounds(w, area);
                 set_tiled(w, 0);
                 order.push(id);
             }
@@ -1616,6 +1641,24 @@ fn propose(w: &mut Win, size: (i32, i32)) {
     w.proposed = Some(size);
 }
 
+/// Clamp a size to min/max limits, where 0 means no limit.
+fn fit_size((w, h): (i32, i32), min: (i32, i32), max: (i32, i32)) -> (i32, i32) {
+    let lim = |v: i32, min: i32, max: i32| {
+        let v = if min > 0 { v.max(min) } else { v };
+        if max > 0 { v.min(max) } else { v }
+    };
+    (lim(w, min.0, max.0), lim(h, min.1, max.1))
+}
+
+/// Tell the window the largest size worth asking for: its monitor's area.
+fn set_bounds(w: &mut Win, area: Rect) {
+    let b = (area.w.max(0), area.h.max(0));
+    if w.bounds_sent != Some(b) {
+        w.obj.set_dimension_bounds(b.0, b.1);
+        w.bounds_sent = Some(b);
+    }
+}
+
 fn set_tiled(w: &mut Win, edges: u32) {
     if w.tiled_edges != Some(edges) {
         w.obj
@@ -1734,6 +1777,9 @@ impl Dispatch<RiverWindowManagerV1, ()> for Wm {
                         fs_output: None,
                         float_rect: None,
                         natural: None,
+                        min_size: (0, 0),
+                        max_size: (0, 0),
+                        bounds_sent: None,
                         dims: None,
                         proposed: None,
                         tiled_edges: None,
@@ -1840,6 +1886,15 @@ impl Dispatch<RiverWindowV1, ()> for Wm {
                 Event::ExitFullscreenRequested => w.req_fullscreen = Some(false),
                 Event::UnreliablePid { unreliable_pid } => w.pid = unreliable_pid,
                 Event::Identifier { identifier } => w.identifier = identifier,
+                Event::DimensionsHint {
+                    min_width,
+                    min_height,
+                    max_width,
+                    max_height,
+                } => {
+                    w.min_size = (min_width, min_height);
+                    w.max_size = (max_width, max_height);
+                }
                 Event::PresentationHint { hint } => {
                     w.wants_tearing = matches!(
                         hint,
@@ -2060,5 +2115,19 @@ impl Dispatch<WlOutput, ObjectId> for Wm {
         {
             m.name = name;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fit_size;
+
+    #[test]
+    fn sizes_stay_within_hints() {
+        assert_eq!(fit_size((100, 100), (200, 50), (0, 0)), (200, 100));
+        assert_eq!(fit_size((900, 900), (0, 0), (640, 480)), (640, 480));
+        assert_eq!(fit_size((300, 300), (0, 0), (0, 0)), (300, 300));
+        // fixed size
+        assert_eq!(fit_size((10, 999), (400, 300), (400, 300)), (400, 300));
     }
 }

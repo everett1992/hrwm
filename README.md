@@ -29,6 +29,8 @@ command line: `hrwm` is both the window manager and its `herbstclient`.
   - `keymap LAYOUT [VARIANT [OPTIONS]]` sets the keyboard layout
   - `input SETTING VALUE [DEVICE]` configures touchpads and mice (tap-to-click,
     disable-while-typing, natural scrolling, acceleration); `list_inputs` shows them
+  - floating and pseudotiled windows respect apps' min/max sizes; `rule fixedsize
+    floating=on` floats windows that can't be resized
   - fullscreen games that ask for tearing get it, for lower latency
     (`allow_tearing`, on by default)
   - `jumpto urgent` (waiting on river to report urgency)

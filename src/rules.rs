@@ -35,6 +35,8 @@ pub struct Props<'a> {
     pub title: &'a str,
     pub has_parent: bool,
     pub pid: i32,
+    /// min size == max size
+    pub fixed_size: bool,
 }
 
 /// The merged consequences of all matching rules.
@@ -95,6 +97,15 @@ impl Rules {
                 }
                 "printlabel" => {
                     print_label = true;
+                    continue;
+                }
+                "fixedsize" => {
+                    rule.conditions.push(Condition {
+                        property: "fixedsize".into(),
+                        matcher: Matcher::Equals("1".into()),
+                        negated: negate_next,
+                    });
+                    negate_next = false;
                     continue;
                 }
                 _ => {}
@@ -213,6 +224,7 @@ fn condition_matches(c: &Condition, p: &Props) -> bool {
         }
         .to_string(),
         "windowrole" => String::new(),
+        "fixedsize" => (if p.fixed_size { "1" } else { "0" }).to_string(),
         // a window is only ever checked when it appears
         "maxage" => return !c.negated,
         _ => return false,
@@ -247,6 +259,7 @@ mod tests {
             title: "x",
             has_parent: false,
             pid: 1,
+            fixed_size: false,
         };
         let o = r.apply(&normal);
         assert_eq!(o.focus, Some(true));
@@ -256,10 +269,30 @@ mod tests {
             title: "Save",
             has_parent: true,
             pid: 1,
+            fixed_size: false,
         };
         assert_eq!(r.apply(&dialog).pseudotile, Some(true));
         r.remove("-F").unwrap();
         assert_eq!(r.apply(&normal).focus, None);
+    }
+
+    #[test]
+    fn fixedsize_condition() {
+        let mut r = Rules::default();
+        r.add(&args(&["fixedsize", "floating=on"])).unwrap();
+        let fixed = Props {
+            app_id: "pinentry",
+            title: "",
+            has_parent: false,
+            pid: 1,
+            fixed_size: true,
+        };
+        let resizable = Props {
+            fixed_size: false,
+            ..fixed
+        };
+        assert_eq!(r.apply(&fixed).floating, Some(true));
+        assert_eq!(r.apply(&resizable).floating, None);
     }
 
     #[test]
@@ -272,12 +305,14 @@ mod tests {
             title: "",
             has_parent: false,
             pid: 1,
+            fixed_size: false,
         };
         let ff = Props {
             app_id: "firefox",
             title: "",
             has_parent: false,
             pid: 1,
+            fixed_size: false,
         };
         assert_eq!(r.apply(&foot).tag, None);
         assert_eq!(r.apply(&ff).tag.as_deref(), Some("x"));
