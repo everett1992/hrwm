@@ -32,7 +32,11 @@ struct RuleNames {
 unsafe extern "C" {
     fn xkb_context_new(flags: i32) -> *mut c_void;
     fn xkb_context_unref(ctx: *mut c_void);
-    fn xkb_keymap_new_from_names(ctx: *mut c_void, names: *const RuleNames, flags: i32) -> *mut c_void;
+    fn xkb_keymap_new_from_names(
+        ctx: *mut c_void,
+        names: *const RuleNames,
+        flags: i32,
+    ) -> *mut c_void;
     fn xkb_keymap_get_as_string(keymap: *mut c_void, format: i32) -> *mut c_char;
     fn xkb_keymap_unref(keymap: *mut c_void);
 }
@@ -68,7 +72,12 @@ fn compile(layout: &str, variant: &str, options: &str) -> Result<Vec<u8>, String
 }
 
 fn sealed_memfd(data: &[u8]) -> Result<OwnedFd, String> {
-    let fd = unsafe { libc::memfd_create(c"hrwm-keymap".as_ptr(), libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING) };
+    let fd = unsafe {
+        libc::memfd_create(
+            c"hrwm-keymap".as_ptr(),
+            libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING,
+        )
+    };
     if fd < 0 {
         return Err("memfd_create failed".into());
     }
@@ -112,7 +121,11 @@ impl Keymaps {
 impl Wm {
     /// `keymap LAYOUT [VARIANT [OPTIONS]]`
     pub fn set_keymap(&mut self, layout: &str, variant: &str, options: &str) -> Result<(), String> {
-        let config = self.keymaps.config.clone().ok_or("river_xkb_config_v1 not available")?;
+        let config = self
+            .keymaps
+            .config
+            .clone()
+            .ok_or("river_xkb_config_v1 not available")?;
         let text = compile(layout, variant, options)?;
         let fd = sealed_memfd(&text)?;
         let km = config.create_keymap(fd.as_fd(), KeymapFormat::TextV1, &self.qh, ());

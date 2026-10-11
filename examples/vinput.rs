@@ -27,7 +27,8 @@ use wayland_protocols_wlr::virtual_pointer::v1::client::{
 #[link(name = "xkbcommon")]
 unsafe extern "C" {
     fn xkb_context_new(flags: i32) -> *mut c_void;
-    fn xkb_keymap_new_from_names(ctx: *mut c_void, names: *const c_void, flags: i32) -> *mut c_void;
+    fn xkb_keymap_new_from_names(ctx: *mut c_void, names: *const c_void, flags: i32)
+    -> *mut c_void;
     fn xkb_keymap_get_as_string(keymap: *mut c_void, format: i32) -> *mut c_char;
 }
 
@@ -39,8 +40,18 @@ struct State {
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for State {
-    fn event(s: &mut Self, r: &wl_registry::WlRegistry, e: wl_registry::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
-        if let wl_registry::Event::Global { name, interface, .. } = e {
+    fn event(
+        s: &mut Self,
+        r: &wl_registry::WlRegistry,
+        e: wl_registry::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let wl_registry::Event::Global {
+            name, interface, ..
+        } = e
+        {
             match interface.as_str() {
                 "wl_seat" => s.seat = Some(r.bind(name, 1, qh, ())),
                 "zwp_virtual_keyboard_manager_v1" => s.kbd = Some(r.bind(name, 1, qh, ())),
@@ -60,7 +71,9 @@ fn keymap_fd() -> (OwnedFd, u32) {
     let s = unsafe {
         let ctx = xkb_context_new(0);
         let km = xkb_keymap_new_from_names(ctx, std::ptr::null(), 0);
-        CStr::from_ptr(xkb_keymap_get_as_string(km, 1)).to_bytes_with_nul().to_vec()
+        CStr::from_ptr(xkb_keymap_get_as_string(km, 1))
+            .to_bytes_with_nul()
+            .to_vec()
     };
     let fd = unsafe { OwnedFd::from_raw_fd(libc::memfd_create(c"keymap".as_ptr(), 0)) };
     let mut f = std::fs::File::from(fd.try_clone().unwrap());
@@ -78,10 +91,18 @@ fn main() {
     let mut st = State::default();
     q.roundtrip(&mut st).unwrap();
     let seat = st.seat.clone().unwrap();
-    let kbd = st.kbd.as_ref().unwrap().create_virtual_keyboard(&seat, &qh, ());
+    let kbd = st
+        .kbd
+        .as_ref()
+        .unwrap()
+        .create_virtual_keyboard(&seat, &qh, ());
     let (fd, size) = keymap_fd();
     kbd.keymap(1, fd.as_fd(), size);
-    let ptr = st.ptr.as_ref().unwrap().create_virtual_pointer(Some(&seat), &qh, ());
+    let ptr = st
+        .ptr
+        .as_ref()
+        .unwrap()
+        .create_virtual_pointer(Some(&seat), &qh, ());
     q.roundtrip(&mut st).unwrap();
     let sync = |q: &mut wayland_client::EventQueue<State>, st: &mut State| {
         q.roundtrip(st).unwrap();
@@ -115,7 +136,11 @@ fn main() {
             sync(&mut q, &mut st);
             kbd.modifiers(mods_of(mods), 0, 0, 0);
             sync(&mut q, &mut st);
-            ptr.button(t(), button, wayland_client::protocol::wl_pointer::ButtonState::Pressed);
+            ptr.button(
+                t(),
+                button,
+                wayland_client::protocol::wl_pointer::ButtonState::Pressed,
+            );
             ptr.frame();
             sync(&mut q, &mut st);
             for i in 1..=10 {
@@ -125,7 +150,11 @@ fn main() {
                 ptr.frame();
                 sync(&mut q, &mut st);
             }
-            ptr.button(t(), button, wayland_client::protocol::wl_pointer::ButtonState::Released);
+            ptr.button(
+                t(),
+                button,
+                wayland_client::protocol::wl_pointer::ButtonState::Released,
+            );
             ptr.frame();
             kbd.modifiers(0, 0, 0, 0);
             sync(&mut q, &mut st);

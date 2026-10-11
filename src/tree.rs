@@ -47,7 +47,12 @@ pub enum Layout {
 }
 
 impl Layout {
-    pub const ALL: [Layout; 4] = [Layout::Vertical, Layout::Horizontal, Layout::Max, Layout::Grid];
+    pub const ALL: [Layout; 4] = [
+        Layout::Vertical,
+        Layout::Horizontal,
+        Layout::Max,
+        Layout::Grid,
+    ];
 
     pub fn parse(s: &str) -> Option<Layout> {
         match s {
@@ -56,7 +61,10 @@ impl Layout {
             "max" => Some(Layout::Max),
             "grid" => Some(Layout::Grid),
             "auto" => Some(Layout::Auto),
-            _ => s.parse::<usize>().ok().and_then(|i| Layout::ALL.get(i).copied()),
+            _ => s
+                .parse::<usize>()
+                .ok()
+                .and_then(|i| Layout::ALL.get(i).copied()),
         }
     }
 
@@ -117,7 +125,12 @@ pub struct Leaf {
 
 impl Leaf {
     pub fn new(layout: Layout) -> Leaf {
-        Leaf { wins: Vec::new(), sel: 0, layout, auto_horizontal: Default::default() }
+        Leaf {
+            wins: Vec::new(),
+            sel: 0,
+            layout,
+            auto_horizontal: Default::default(),
+        }
     }
 
     /// The layout as shown, with Auto resolved.
@@ -212,7 +225,13 @@ impl Frame {
         let mut f = self;
         for &i in path {
             f = match f {
-                Frame::Split(s) => if i == 0 { &s.a } else { &s.b },
+                Frame::Split(s) => {
+                    if i == 0 {
+                        &s.a
+                    } else {
+                        &s.b
+                    }
+                }
                 Frame::Leaf(_) => panic!("path through leaf"),
             };
         }
@@ -223,7 +242,13 @@ impl Frame {
         let mut f = self;
         for &i in path {
             f = match f {
-                Frame::Split(s) => if i == 0 { &mut s.a } else { &mut s.b },
+                Frame::Split(s) => {
+                    if i == 0 {
+                        &mut s.a
+                    } else {
+                        &mut s.b
+                    }
+                }
                 Frame::Leaf(_) => panic!("path through leaf"),
             };
         }
@@ -324,7 +349,9 @@ impl Frame {
     }
 
     pub fn remove_window(&mut self, w: WinId) -> bool {
-        let Some(path) = self.leaf_with(w) else { return false };
+        let Some(path) = self.leaf_with(w) else {
+            return false;
+        };
         let l = self.leaf_at_mut(&path);
         let idx = l.wins.iter().position(|&x| x == w).unwrap();
         l.wins.remove(idx);
@@ -337,7 +364,9 @@ impl Frame {
 
     /// Select `w` within its frame and focus that frame.
     pub fn focus_window(&mut self, w: WinId) -> bool {
-        let Some(path) = self.leaf_with(w) else { return false };
+        let Some(path) = self.leaf_with(w) else {
+            return false;
+        };
         let l = self.leaf_at_mut(&path);
         l.sel = l.wins.iter().position(|&x| x == w).unwrap();
         self.focus_frame(&path);
@@ -350,7 +379,9 @@ impl Frame {
         for i in (0..path.len()).rev() {
             let parent = &path[..i];
             let child = path[i];
-            let Frame::Split(s) = self.at(parent) else { unreachable!() };
+            let Frame::Split(s) = self.at(parent) else {
+                unreachable!()
+            };
             let hit = match dir {
                 Dir::Right => s.align == Align::Horizontal && child == 0,
                 Dir::Left => s.align == Align::Horizontal && child == 1,
@@ -395,7 +426,9 @@ impl Frame {
                 return true;
             }
         }
-        let Some((parent, other)) = self.neighbour(&path, dir) else { return false };
+        let Some((parent, other)) = self.neighbour(&path, dir) else {
+            return false;
+        };
         let w = self.focused_window().unwrap();
         self.remove_window(w);
         let mut target = parent.clone();
@@ -419,11 +452,16 @@ impl Frame {
             l.sel = i;
             return true;
         }
-        let Some((parent, other)) = self.neighbour(&path, dir) else { return false };
+        let Some((parent, other)) = self.neighbour(&path, dir) else {
+            return false;
+        };
         let mut target = parent.clone();
         target.push(other);
         target.extend(self.at(&target).focus_path());
-        let Some(theirs) = self.at(&target).as_leaf().and_then(|l| l.wins.get(l.sel).copied())
+        let Some(theirs) = self
+            .at(&target)
+            .as_leaf()
+            .and_then(|l| l.wins.get(l.sel).copied())
         else {
             return self.shift_dir(dir, true);
         };
@@ -440,7 +478,9 @@ impl Frame {
 
     /// Put `new` where `old` is.
     pub fn replace_window(&mut self, old: WinId, new: WinId) -> bool {
-        let Some(path) = self.leaf_with(old) else { return false };
+        let Some(path) = self.leaf_with(old) else {
+            return false;
+        };
         let l = self.leaf_at_mut(&path);
         let i = l.wins.iter().position(|&x| x == old).unwrap();
         l.wins[i] = new;
@@ -450,18 +490,42 @@ impl Frame {
     /// `split MODE [FRACTION]` on the focused frame.
     pub fn split(&mut self, mode: &str, frac: Option<f64>, rect_hint: Rect) -> Result<(), String> {
         let path = self.focus_path();
-        let auto = if rect_hint.w > rect_hint.h { Align::Horizontal } else { Align::Vertical };
+        let auto = if rect_hint.w > rect_hint.h {
+            Align::Horizontal
+        } else {
+            Align::Vertical
+        };
         let mut m = match mode {
-            "top" | "t" => SplitMode { align: Align::Vertical, frame_to_first: false, selection: Some(1) },
-            "bottom" | "b" | "vertical" | "v" => {
-                SplitMode { align: Align::Vertical, frame_to_first: true, selection: Some(0) }
-            }
-            "right" | "r" | "horizontal" | "h" => {
-                SplitMode { align: Align::Horizontal, frame_to_first: true, selection: Some(0) }
-            }
-            "left" | "l" => SplitMode { align: Align::Horizontal, frame_to_first: false, selection: Some(1) },
-            "explode" => SplitMode { align: Align::Vertical, frame_to_first: true, selection: None },
-            "auto" => SplitMode { align: auto, frame_to_first: true, selection: Some(0) },
+            "top" | "t" => SplitMode {
+                align: Align::Vertical,
+                frame_to_first: false,
+                selection: Some(1),
+            },
+            "bottom" | "b" | "vertical" | "v" => SplitMode {
+                align: Align::Vertical,
+                frame_to_first: true,
+                selection: Some(0),
+            },
+            "right" | "r" | "horizontal" | "h" => SplitMode {
+                align: Align::Horizontal,
+                frame_to_first: true,
+                selection: Some(0),
+            },
+            "left" | "l" => SplitMode {
+                align: Align::Horizontal,
+                frame_to_first: false,
+                selection: Some(1),
+            },
+            "explode" => SplitMode {
+                align: Align::Vertical,
+                frame_to_first: true,
+                selection: None,
+            },
+            "auto" => SplitMode {
+                align: auto,
+                frame_to_first: true,
+                selection: Some(0),
+            },
             _ => return Err(format!("invalid split mode \"{mode}\"")),
         };
         if path.len() >= MAX_DEPTH {
@@ -518,15 +582,23 @@ impl Frame {
     /// `remove`: merge the focused frame into its sibling.
     pub fn remove_frame(&mut self) {
         let path = self.focus_path();
-        let Some((&idx, parent_path)) = path.split_last() else { return };
+        let Some((&idx, parent_path)) = path.split_last() else {
+            return;
+        };
         let at_front = idx == 0;
         let leaf = self.leaf_at_mut(&path);
         let focus_index = leaf.sel;
         let removed = std::mem::take(&mut leaf.wins);
 
-        let Frame::Split(parent) = self.at_mut(parent_path) else { unreachable!() };
+        let Frame::Split(parent) = self.at_mut(parent_path) else {
+            unreachable!()
+        };
         let align = parent.align;
-        let sibling = if at_front { &mut parent.b } else { &mut parent.a };
+        let sibling = if at_front {
+            &mut parent.b
+        } else {
+            &mut parent.a
+        };
         let mut target: &mut Frame = sibling;
         while let Frame::Split(s) = target {
             if s.align == align {
@@ -534,7 +606,9 @@ impl Frame {
             }
             target = if s.sel == 0 { &mut s.a } else { &mut s.b };
         }
-        let Frame::Leaf(t) = target else { unreachable!() };
+        let Frame::Leaf(t) = target else {
+            unreachable!()
+        };
         let old_count = t.wins.len();
         if at_front {
             let rest = std::mem::take(&mut t.wins);
@@ -544,20 +618,36 @@ impl Frame {
             t.wins.extend(removed.iter().copied());
         }
         if !removed.is_empty() {
-            t.sel = if at_front { focus_index } else { focus_index + old_count };
+            t.sel = if at_front {
+                focus_index
+            } else {
+                focus_index + old_count
+            };
         }
-        let Frame::Split(parent) = self.at_mut(parent_path) else { unreachable!() };
+        let Frame::Split(parent) = self.at_mut(parent_path) else {
+            unreachable!()
+        };
         let sibling = std::mem::replace(
-            if at_front { &mut parent.b } else { &mut parent.a },
+            if at_front {
+                &mut parent.b
+            } else {
+                &mut parent.a
+            },
             Box::new(Frame::new_leaf(Layout::Vertical)),
         );
         *self.at_mut(parent_path) = *sibling;
     }
 
     pub fn resize(&mut self, dir: Dir, delta: f64) -> bool {
-        let delta = if matches!(dir, Dir::Left | Dir::Up) { -delta } else { delta };
+        let delta = if matches!(dir, Dir::Left | Dir::Up) {
+            -delta
+        } else {
+            delta
+        };
         let path = self.focus_path();
-        let found = self.neighbour(&path, dir).or_else(|| self.neighbour(&path, dir.flip()));
+        let found = self
+            .neighbour(&path, dir)
+            .or_else(|| self.neighbour(&path, dir.flip()));
         match found {
             Some((parent, _)) => {
                 let s = self.split_at_mut(&parent);
@@ -641,7 +731,9 @@ impl Frame {
     /// smart_window_surroundings drops gaps for a lone window (or max frame)
     fn borderless(&self, g: &Geometry) -> bool {
         match self {
-            Frame::Leaf(l) => g.smart_window_surroundings && (l.layout == Layout::Max || l.wins.len() == 1),
+            Frame::Leaf(l) => {
+                g.smart_window_surroundings && (l.layout == Layout::Max || l.wins.len() == 1)
+            }
             Frame::Split(_) => false,
         }
     }
@@ -717,7 +809,11 @@ impl Frame {
                 for (win, mut wr, visible) in layout_leaf(l, r) {
                     wr.w = (wr.w - wg).max(1);
                     wr.h = (wr.h - wg).max(1);
-                    tiles.push(Tile { win, rect: wr, visible });
+                    tiles.push(Tile {
+                        win,
+                        rect: wr,
+                        visible,
+                    });
                 }
             }
         }
@@ -726,7 +822,12 @@ impl Frame {
 
 /// The left/top part of the frame gap is applied once per monitor.
 pub fn apply_monitor_gap(r: Rect, g: &Geometry) -> Rect {
-    Rect::new(r.x + g.frame_gap, r.y + g.frame_gap, r.w - g.frame_gap, r.h - g.frame_gap)
+    Rect::new(
+        r.x + g.frame_gap,
+        r.y + g.frame_gap,
+        r.w - g.frame_gap,
+        r.h - g.frame_gap,
+    )
 }
 
 fn grid_size(count: usize) -> (usize, usize) {
@@ -813,7 +914,12 @@ fn layout_leaf(l: &Leaf, rect: Rect) -> Vec<(WinId, Rect, bool)> {
     match l.effective() {
         Layout::Vertical => layout_linear(&l.wins, rect, true),
         Layout::Horizontal => layout_linear(&l.wins, rect, false),
-        Layout::Max => l.wins.iter().enumerate().map(|(i, &w)| (w, rect, i == l.sel)).collect(),
+        Layout::Max => l
+            .wins
+            .iter()
+            .enumerate()
+            .map(|(i, &w)| (w, rect, i == l.sel))
+            .collect(),
         Layout::Auto => unreachable!("effective() resolves Auto"),
         Layout::Grid => {
             let (rows, cols) = grid_size(l.wins.len());
@@ -878,10 +984,12 @@ mod tests {
     #[test]
     fn split_keeps_focus_on_old_frame() {
         let mut t = tree_with(&[1]);
-        t.split("bottom", Some(0.82), Rect::new(0, 0, 100, 100)).unwrap();
+        t.split("bottom", Some(0.82), Rect::new(0, 0, 100, 100))
+            .unwrap();
         assert_eq!(t.focus_path(), vec![0]);
         assert_eq!(t.focused_window(), Some(1));
-        t.split("left", Some(0.38), Rect::new(0, 0, 100, 100)).unwrap();
+        t.split("left", Some(0.38), Rect::new(0, 0, 100, 100))
+            .unwrap();
         // old frame is now the second child and stays selected
         assert_eq!(t.focus_path(), vec![0, 1]);
         assert_eq!(t.focused_window(), Some(1));
@@ -891,7 +999,8 @@ mod tests {
     fn split_then_shift_moves_window_into_new_frame() {
         // the user's `split` script: split bottom 0.82 , shift -e down
         let mut t = tree_with(&[1, 2]);
-        t.split("bottom", Some(0.82), Rect::new(0, 0, 100, 100)).unwrap();
+        t.split("bottom", Some(0.82), Rect::new(0, 0, 100, 100))
+            .unwrap();
         assert!(t.shift_dir(Dir::Down, true));
         assert_eq!(t.focus_path(), vec![1]);
         assert_eq!(t.focused_window(), Some(2));
@@ -1008,7 +1117,11 @@ mod tests {
         let rects: Vec<Rect> = tiles.iter().map(|t| t.rect).collect();
         assert_eq!(
             rects,
-            vec![Rect::new(0, 0, 50, 50), Rect::new(50, 0, 50, 50), Rect::new(0, 50, 100, 50)]
+            vec![
+                Rect::new(0, 0, 50, 50),
+                Rect::new(50, 0, 50, 50),
+                Rect::new(0, 50, 100, 50)
+            ]
         );
     }
 

@@ -5,7 +5,31 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only token; nothing in CI needs to write.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm --needed git rust libxkbcommon zizmor
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: rustfmt
+        run: cargo fmt --check
+      - name: clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Workflow security audit (zizmor)
+        run: zizmor --offline .github/workflows
+
   test:
     runs-on: ubuntu-latest
     # Arch packages river 0.4; most distributions don't yet
@@ -13,7 +37,9 @@ jobs:
     steps:
       - name: Install dependencies
         run: pacman -Syu --noconfirm --needed git rust libxkbcommon river foot ttf-dejavu
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build
         run: cargo build --locked --all-targets
       - name: Unit tests

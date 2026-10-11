@@ -51,7 +51,14 @@ pub struct Outcome {
 }
 
 const CONDITIONS: &[&str] = &[
-    "class", "instance", "title", "pid", "windowtype", "windowrole", "maxage", "fixedsize",
+    "class",
+    "instance",
+    "title",
+    "pid",
+    "windowtype",
+    "windowrole",
+    "maxage",
+    "fixedsize",
 ];
 
 fn on_off(v: &str) -> bool {
@@ -92,7 +99,9 @@ impl Rules {
                 }
                 _ => {}
             }
-            let split = arg.find(['=', '~']).ok_or_else(|| format!("invalid rule argument \"{arg}\""))?;
+            let split = arg
+                .find(['=', '~'])
+                .ok_or_else(|| format!("invalid rule argument \"{arg}\""))?;
             let (key, op, value) = (&arg[..split], &arg[split..split + 1], &arg[split + 1..]);
             if key == "label" {
                 rule.label = value.to_string();
@@ -120,7 +129,11 @@ impl Rules {
         }
         let label = rule.label.clone();
         self.rules.push(rule);
-        Ok(if print_label { format!("{label}\n") } else { String::new() })
+        Ok(if print_label {
+            format!("{label}\n")
+        } else {
+            String::new()
+        })
     }
 
     /// `unrule LABEL|--all|-F`
@@ -223,14 +236,27 @@ mod tests {
     fn users_rules() {
         let mut r = Rules::default();
         r.add(&args(&["focus=on"])).unwrap();
-        r.add(&args(&["windowtype~_NET_WM_WINDOW_TYPE_(DIALOG|UTILITY|SPLASH)", "pseudotile=on"]))
-            .unwrap();
+        r.add(&args(&[
+            "windowtype~_NET_WM_WINDOW_TYPE_(DIALOG|UTILITY|SPLASH)",
+            "pseudotile=on",
+        ]))
+        .unwrap();
         r.add(&args(&["class=URxvt", "pseudotile=on"])).unwrap();
-        let normal = Props { app_id: "foot", title: "x", has_parent: false, pid: 1 };
+        let normal = Props {
+            app_id: "foot",
+            title: "x",
+            has_parent: false,
+            pid: 1,
+        };
         let o = r.apply(&normal);
         assert_eq!(o.focus, Some(true));
         assert_eq!(o.pseudotile, None);
-        let dialog = Props { app_id: "firefox", title: "Save", has_parent: true, pid: 1 };
+        let dialog = Props {
+            app_id: "firefox",
+            title: "Save",
+            has_parent: true,
+            pid: 1,
+        };
         assert_eq!(r.apply(&dialog).pseudotile, Some(true));
         r.remove("-F").unwrap();
         assert_eq!(r.apply(&normal).focus, None);
@@ -239,9 +265,20 @@ mod tests {
     #[test]
     fn once_and_negation() {
         let mut r = Rules::default();
-        r.add(&args(&["once", "not", "class=foot", "tag=x"])).unwrap();
-        let foot = Props { app_id: "foot", title: "", has_parent: false, pid: 1 };
-        let ff = Props { app_id: "firefox", title: "", has_parent: false, pid: 1 };
+        r.add(&args(&["once", "not", "class=foot", "tag=x"]))
+            .unwrap();
+        let foot = Props {
+            app_id: "foot",
+            title: "",
+            has_parent: false,
+            pid: 1,
+        };
+        let ff = Props {
+            app_id: "firefox",
+            title: "",
+            has_parent: false,
+            pid: 1,
+        };
         assert_eq!(r.apply(&foot).tag, None);
         assert_eq!(r.apply(&ff).tag.as_deref(), Some("x"));
         assert_eq!(r.apply(&ff).tag, None);

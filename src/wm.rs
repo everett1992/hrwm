@@ -6,12 +6,17 @@ use std::os::unix::net::UnixStream;
 
 use wayland_backend::client::ObjectId;
 use wayland_client::protocol::{
-    wl_buffer::WlBuffer, wl_compositor::WlCompositor, wl_output::{self, WlOutput}, wl_registry,
+    wl_buffer::WlBuffer,
+    wl_compositor::WlCompositor,
+    wl_output::{self, WlOutput},
+    wl_registry,
     wl_surface::WlSurface,
 };
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, delegate_noop};
 use wayland_protocols::wp::single_pixel_buffer::v1::client::wp_single_pixel_buffer_manager_v1::WpSinglePixelBufferManagerV1;
-use wayland_protocols::wp::viewporter::client::{wp_viewport::WpViewport, wp_viewporter::WpViewporter};
+use wayland_protocols::wp::viewporter::client::{
+    wp_viewport::WpViewport, wp_viewporter::WpViewporter,
+};
 
 use crate::protocol::{
     river_layer_shell_output_v1::{self, RiverLayerShellOutputV1},
@@ -35,7 +40,9 @@ use crate::tree::{Frame, Rect, WinId, apply_monitor_gap};
 pub enum Place {
     Hidden,
     /// the slot includes the window border
-    Tiled { slot: Rect },
+    Tiled {
+        slot: Rect,
+    },
     Floating,
     Fullscreen,
 }
@@ -306,7 +313,9 @@ impl Wm {
 
     pub fn has_globals(&self) -> Result<(), String> {
         if self.river.is_none() {
-            return Err("river_window_manager_v1 (version 4+) not found; is this river 0.4?".into());
+            return Err(
+                "river_window_manager_v1 (version 4+) not found; is this river 0.4?".into(),
+            );
         }
         if self.xkb.is_none() {
             return Err("river_xkb_bindings_v1 not found".into());
@@ -326,13 +335,17 @@ impl Wm {
     pub fn emit(&mut self, fields: &[&str]) {
         let mut line = fields.join("\t");
         line.push('\n');
-        self.idle.retain_mut(|s| s.write_all(line.as_bytes()).is_ok());
+        self.idle
+            .retain_mut(|s| s.write_all(line.as_bytes()).is_ok());
     }
 
     // ----- lookups -------------------------------------------------------
 
     pub fn cur_tag(&self) -> usize {
-        self.monitors.get(self.focused_mon).map(|m| m.tag).unwrap_or(0)
+        self.monitors
+            .get(self.focused_mon)
+            .map(|m| m.tag)
+            .unwrap_or(0)
     }
 
     pub fn tag_index(&self, name: &str) -> Option<usize> {
@@ -484,7 +497,9 @@ impl Wm {
     }
 
     pub fn set_urgent(&mut self, id: WinId, on: bool) {
-        let Some(w) = self.wins.get_mut(&id) else { return };
+        let Some(w) = self.wins.get_mut(&id) else {
+            return;
+        };
         if w.urgent == on {
             return;
         }
@@ -496,10 +511,19 @@ impl Wm {
 
     /// The next urgent window after the focused one, in creation order.
     pub fn next_urgent(&self) -> Option<WinId> {
-        let mut urgent: Vec<WinId> = self.wins.values().filter(|w| w.urgent).map(|w| w.id).collect();
+        let mut urgent: Vec<WinId> = self
+            .wins
+            .values()
+            .filter(|w| w.urgent)
+            .map(|w| w.id)
+            .collect();
         urgent.sort();
         let after = self.focused_window().unwrap_or(0);
-        urgent.iter().find(|&&id| id > after).or(urgent.first()).copied()
+        urgent
+            .iter()
+            .find(|&&id| id > after)
+            .or(urgent.first())
+            .copied()
     }
 
     pub fn raise(&mut self, id: WinId) {
@@ -610,8 +634,14 @@ impl Wm {
         let (cx, cy) = start.center();
         let kind = match action {
             "move" => OpKind::Move,
-            "resize" => OpKind::Resize { left: px < cx, top: py < cy },
-            "zoom" => OpKind::Zoom { sx: if px < cx { -1 } else { 1 }, sy: if py < cy { -1 } else { 1 } },
+            "resize" => OpKind::Resize {
+                left: px < cx,
+                top: py < cy,
+            },
+            "zoom" => OpKind::Zoom {
+                sx: if px < cx { -1 } else { 1 },
+                sy: if py < cy { -1 } else { 1 },
+            },
             _ => return,
         };
         let s = &mut self.seats[seat];
@@ -619,7 +649,14 @@ impl Wm {
         if !matches!(kind, OpKind::Move) {
             w.obj.inform_resize_start();
         }
-        s.op = Some(Op { kind, win, start, dx: 0, dy: 0, released: false });
+        s.op = Some(Op {
+            kind,
+            win,
+            start,
+            dx: 0,
+            dy: 0,
+            released: false,
+        });
         self.focus_win(win);
         self.raise(win);
     }
@@ -647,7 +684,9 @@ impl Wm {
                     }
                 }
                 Action::Mouse { seat, cmd } => {
-                    let Some(si) = self.seats.iter().position(|s| s.oid == seat) else { continue };
+                    let Some(si) = self.seats.iter().position(|s| s.oid == seat) else {
+                        continue;
+                    };
                     if cmd.len() == 1 && matches!(cmd[0].as_str(), "move" | "resize" | "zoom") {
                         if self.seats[si].op.is_none() {
                             if let Some(w) = self.seats[si].hovered {
@@ -692,7 +731,12 @@ impl Wm {
 
     /// Destroy closed windows and removed outputs/seats.
     fn reap(&mut self) {
-        let closed: Vec<WinId> = self.wins.values().filter(|w| w.closed).map(|w| w.id).collect();
+        let closed: Vec<WinId> = self
+            .wins
+            .values()
+            .filter(|w| w.closed)
+            .map(|w| w.id)
+            .collect();
         for id in closed {
             self.detach(id);
             let w = self.wins.remove(&id).unwrap();
@@ -786,7 +830,9 @@ impl Wm {
                     s.ls = Some(ls.get_seat(&s.obj, &self.qh, s.oid.clone()));
                 }
                 if let Ok(theme) = std::env::var("XCURSOR_THEME") {
-                    let size = std::env::var("XCURSOR_SIZE").ok().and_then(|s| s.parse().ok());
+                    let size = std::env::var("XCURSOR_SIZE")
+                        .ok()
+                        .and_then(|s| s.parse().ok());
                     s.obj.set_xcursor_theme(theme, size.unwrap_or(24));
                 }
                 self.binds_dirty = true;
@@ -810,7 +856,8 @@ impl Wm {
             w.floating = out.floating.unwrap_or(false) || out.manage == Some(false);
             w.pseudotile = out.pseudotile.unwrap_or(false);
             w.fullscreen = out.fullscreen.unwrap_or(false);
-            w.obj.set_capabilities(river_window_v1::Capabilities::Fullscreen);
+            w.obj
+                .set_capabilities(river_window_v1::Capabilities::Fullscreen);
             if !w.only_csd {
                 w.obj.use_ssd();
                 w.ssd_sent = true;
@@ -914,7 +961,9 @@ impl Wm {
 
     fn update_ops(&mut self) {
         for si in 0..self.seats.len() {
-            let Some(op) = self.seats[si].op.clone() else { continue };
+            let Some(op) = self.seats[si].op.clone() else {
+                continue;
+            };
             let Some(w) = self.wins.get_mut(&op.win) else {
                 self.seats[si].op = None;
                 continue;
@@ -952,7 +1001,9 @@ impl Wm {
     /// mousebind lists.
     fn sync_bindings(&mut self) {
         self.binds_dirty = false;
-        let (Some(xkb), qh) = (&self.xkb, &self.qh) else { return };
+        let (Some(xkb), qh) = (&self.xkb, &self.qh) else {
+            return;
+        };
         let keys: Vec<(u32, u32)> = self.keybinds.iter().map(|k| (k.mods, k.sym)).collect();
         let buttons: Vec<(u32, u32)> = self.mousebinds.iter().map(|b| (b.mods, b.button)).collect();
         for s in &mut self.seats {
@@ -964,7 +1015,7 @@ impl Wm {
                 keep
             });
             for &(mods, sym) in &keys {
-                if !s.keys.contains_key(&(mods, sym)) {
+                s.keys.entry((mods, sym)).or_insert_with(|| {
                     let b = xkb.get_xkb_binding(
                         &s.obj,
                         sym,
@@ -973,8 +1024,8 @@ impl Wm {
                         (mods, sym),
                     );
                     b.enable();
-                    s.keys.insert((mods, sym), b);
-                }
+                    b
+                });
             }
             s.buttons.retain(|k, b| {
                 let keep = buttons.contains(k);
@@ -984,7 +1035,7 @@ impl Wm {
                 keep
             });
             for &(mods, button) in &buttons {
-                if !s.buttons.contains_key(&(mods, button)) {
+                s.buttons.entry((mods, button)).or_insert_with(|| {
                     let b = s.obj.get_pointer_binding(
                         button,
                         river_seat_v1::Modifiers::from_bits_retain(mods),
@@ -992,8 +1043,8 @@ impl Wm {
                         (s.oid.clone(), mods, button),
                     );
                     b.enable();
-                    s.buttons.insert((mods, button), b);
-                }
+                    b
+                });
             }
         }
     }
@@ -1018,14 +1069,24 @@ impl Wm {
             let focused = tag.focused();
 
             for t in &tiles {
-                let Some(w) = self.wins.get_mut(&t.win) else { continue };
+                let Some(w) = self.wins.get_mut(&t.win) else {
+                    continue;
+                };
                 if tag_floating {
                     if w.float_rect.is_none() {
                         w.float_rect = Some(t.rect.inset(bw));
                     }
-                    w.place = if visible { Place::Floating } else { Place::Hidden };
+                    w.place = if visible {
+                        Place::Floating
+                    } else {
+                        Place::Hidden
+                    };
                 } else {
-                    w.place = if visible && t.visible { Place::Tiled { slot: t.rect } } else { Place::Hidden };
+                    w.place = if visible && t.visible {
+                        Place::Tiled { slot: t.rect }
+                    } else {
+                        Place::Hidden
+                    };
                 }
                 let size = if tag_floating {
                     w.float_rect.map(|r| (r.w, r.h)).unwrap_or((0, 0))
@@ -1054,8 +1115,14 @@ impl Wm {
                 }
             }
             for &id in &tag.floats {
-                let Some(w) = self.wins.get_mut(&id) else { continue };
-                w.place = if visible { Place::Floating } else { Place::Hidden };
+                let Some(w) = self.wins.get_mut(&id) else {
+                    continue;
+                };
+                w.place = if visible {
+                    Place::Floating
+                } else {
+                    Place::Hidden
+                };
                 let size = w.float_rect.map(|r| (r.w, r.h)).unwrap_or((0, 0));
                 propose(w, size);
                 set_tiled(w, 0);
@@ -1102,13 +1169,24 @@ impl Wm {
             if visible && !tag_floating {
                 let s = &self.settings;
                 for f in &frames {
-                    if !s.show_frame_decorations.shows(f.has_clients, f.focused, f.is_root) {
+                    if !s
+                        .show_frame_decorations
+                        .shows(f.has_clients, f.focused, f.is_root)
+                    {
                         continue;
                     }
                     let (border, bg, opacity) = if f.focused {
-                        (s.frame_border_active_color, s.frame_bg_active_color, s.frame_active_opacity)
+                        (
+                            s.frame_border_active_color,
+                            s.frame_bg_active_color,
+                            s.frame_active_opacity,
+                        )
                     } else {
-                        (s.frame_border_normal_color, s.frame_bg_normal_color, s.frame_normal_opacity)
+                        (
+                            s.frame_border_normal_color,
+                            s.frame_bg_normal_color,
+                            s.frame_normal_opacity,
+                        )
                     };
                     let fbw = s.frame_border_width;
                     if fbw > 0 {
@@ -1148,7 +1226,9 @@ impl Wm {
     }
 
     fn update_focus(&mut self) {
-        let want = self.focused_window().filter(|id| self.wins[id].place != Place::Hidden);
+        let want = self
+            .focused_window()
+            .filter(|id| self.wins[id].place != Place::Hidden);
         for s in &mut self.seats {
             if s.focus_sent == Some(want) {
                 continue;
@@ -1223,7 +1303,11 @@ impl Wm {
                 self.settings.window_border_normal_color
             };
             let [r, g, b, a] = color.premultiplied_u32();
-            let edges = if bw > 0 { river_window_v1::Edges::all() } else { river_window_v1::Edges::empty() };
+            let edges = if bw > 0 {
+                river_window_v1::Edges::all()
+            } else {
+                river_window_v1::Edges::empty()
+            };
             w.obj.set_borders(edges, bw, r, g, b, a);
         }
         for (id, dw, dh) in new_floats {
@@ -1244,9 +1328,12 @@ impl Wm {
     }
 
     fn render_decorations(&mut self) {
-        let (Some(comp), Some(vp), Some(px), Some(river)) =
-            (&self.compositor, &self.viewporter, &self.pixels, &self.river)
-        else {
+        let (Some(comp), Some(vp), Some(px), Some(river)) = (
+            &self.compositor,
+            &self.viewporter,
+            &self.pixels,
+            &self.river,
+        ) else {
             return;
         };
         while self.decos.len() < self.deco_plan.len() {
@@ -1254,7 +1341,14 @@ impl Wm {
             let viewport = vp.get_viewport(&surface, &self.qh, ());
             let shell = river.get_shell_surface(&surface, &self.qh, ());
             let node = shell.get_node(&self.qh, ());
-            self.decos.push(Deco { surface, viewport, shell, node, shown: None, frame: None });
+            self.decos.push(Deco {
+                surface,
+                viewport,
+                shell,
+                node,
+                shown: None,
+                frame: None,
+            });
         }
         for (i, d) in self.decos.iter_mut().enumerate() {
             let want = self.deco_plan.get(i);
@@ -1308,7 +1402,8 @@ fn propose(w: &mut Win, size: (i32, i32)) {
 
 fn set_tiled(w: &mut Win, edges: u32) {
     if w.tiled_edges != Some(edges) {
-        w.obj.set_tiled(river_window_v1::Edges::from_bits_retain(edges));
+        w.obj
+            .set_tiled(river_window_v1::Edges::from_bits_retain(edges));
         w.tiled_edges = Some(edges);
     }
 }
@@ -1324,7 +1419,14 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Wm {
         _: &Connection,
         qh: &QueueHandle<Self>,
     ) {
-        let wl_registry::Event::Global { name, interface, version } = event else { return };
+        let wl_registry::Event::Global {
+            name,
+            interface,
+            version,
+        } = event
+        else {
+            return;
+        };
         state.registry.get_or_insert_with(|| registry.clone());
         match interface.as_str() {
             "wl_output" => {
@@ -1335,7 +1437,9 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Wm {
             }
             "river_xkb_bindings_v1" => state.xkb = Some(registry.bind(name, 1, qh, ())),
             "river_layer_shell_v1" => state.layer_shell = Some(registry.bind(name, 1, qh, ())),
-            "wl_compositor" if version >= 4 => state.compositor = Some(registry.bind(name, 4, qh, ())),
+            "wl_compositor" if version >= 4 => {
+                state.compositor = Some(registry.bind(name, 4, qh, ()))
+            }
             "wp_viewporter" => state.viewporter = Some(registry.bind(name, 1, qh, ())),
             "river_input_manager_v1" => state.keymaps.input = Some(registry.bind(name, 1, qh, ())),
             "river_xkb_config_v1" => state.keymaps.config = Some(registry.bind(name, 1, qh, ())),
@@ -1465,7 +1569,9 @@ impl Dispatch<RiverWindowV1, ()> for Wm {
         _: &QueueHandle<Self>,
     ) {
         use river_window_v1::Event;
-        let Some(&id) = state.by_obj.get(&proxy.id()) else { return };
+        let Some(&id) = state.by_obj.get(&proxy.id()) else {
+            return;
+        };
         let parent_id = |p: &Option<RiverWindowV1>| p.as_ref().map(|p| p.id());
         let mut title_changed = false;
         let mut natural_found = false;
@@ -1489,7 +1595,9 @@ impl Dispatch<RiverWindowV1, ()> for Wm {
                 Event::DecorationHint { hint } => {
                     w.only_csd = matches!(
                         hint,
-                        wayland_client::WEnum::Value(river_window_v1::DecorationHint::OnlySupportsCsd)
+                        wayland_client::WEnum::Value(
+                            river_window_v1::DecorationHint::OnlySupportsCsd
+                        )
                     );
                 }
                 Event::PointerMoveRequested { seat } => w.req_move = Some(seat.id()),
@@ -1529,7 +1637,9 @@ impl Dispatch<RiverOutputV1, ()> for Wm {
         _: &QueueHandle<Self>,
     ) {
         use river_output_v1::Event;
-        let Some(m) = state.monitors.iter_mut().find(|m| m.oid == proxy.id()) else { return };
+        let Some(m) = state.monitors.iter_mut().find(|m| m.oid == proxy.id()) else {
+            return;
+        };
         match event {
             Event::Removed => {
                 m.removed = true;
@@ -1569,7 +1679,9 @@ impl Dispatch<RiverSeatV1, ()> for Wm {
     ) {
         use river_seat_v1::Event;
         let win_of = |w: &RiverWindowV1| state.by_obj.get(&w.id()).copied();
-        let Some(si) = state.seats.iter().position(|s| s.oid == proxy.id()) else { return };
+        let Some(si) = state.seats.iter().position(|s| s.oid == proxy.id()) else {
+            return;
+        };
         match event {
             Event::Removed => state.seats[si].removed = true,
             Event::PointerEnter { window } => {
@@ -1635,8 +1747,15 @@ impl Dispatch<RiverPointerBindingV1, (ObjectId, u32, u32)> for Wm {
     ) {
         if let river_pointer_binding_v1::Event::Pressed = event {
             let (seat, mods, button) = data.clone();
-            if let Some(b) = state.mousebinds.iter().find(|b| (b.mods, b.button) == (mods, button)) {
-                state.actions.push(Action::Mouse { seat, cmd: b.cmd.clone() });
+            if let Some(b) = state
+                .mousebinds
+                .iter()
+                .find(|b| (b.mods, b.button) == (mods, button))
+            {
+                state.actions.push(Action::Mouse {
+                    seat,
+                    cmd: b.cmd.clone(),
+                });
             }
         }
     }
@@ -1651,7 +1770,12 @@ impl Dispatch<RiverLayerShellOutputV1, ObjectId> for Wm {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        let river_layer_shell_output_v1::Event::NonExclusiveArea { x, y, width, height } = event;
+        let river_layer_shell_output_v1::Event::NonExclusiveArea {
+            x,
+            y,
+            width,
+            height,
+        } = event;
         if let Some(m) = state.monitors.iter_mut().find(|m| m.oid == *output) {
             m.usable = Some(Rect::new(x, y, width, height));
         }

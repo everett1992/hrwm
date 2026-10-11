@@ -18,7 +18,11 @@ pub fn socket_path() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
     let display = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".into());
-    let display = display.rsplit('/').next().unwrap_or("wayland-0").to_string();
+    let display = display
+        .rsplit('/')
+        .next()
+        .unwrap_or("wayland-0")
+        .to_string();
     dir.join(format!("hrwm-{display}.sock"))
 }
 
@@ -42,20 +46,13 @@ pub fn decode(buf: &[u8]) -> Vec<String> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn empty_arguments_survive() {
-        let args: Vec<String> = ["keymap", "us", "", "caps:swapescape"].map(String::from).to_vec();
-        assert_eq!(super::decode(&super::encode(&args)), args);
-        assert!(super::decode(b"").is_empty());
-    }
-}
-
 fn connect() -> Result<UnixStream, i32> {
     let path = socket_path();
     UnixStream::connect(&path).map_err(|e| {
-        eprintln!("hrwm: cannot connect to {}: {e} (is hrwm running?)", path.display());
+        eprintln!(
+            "hrwm: cannot connect to {}: {e} (is hrwm running?)",
+            path.display()
+        );
         1
     })
 }
@@ -130,7 +127,10 @@ pub struct Pending {
 impl Pending {
     pub fn new(stream: UnixStream) -> Pending {
         let _ = stream.set_nonblocking(true);
-        Pending { stream, buf: Vec::new() }
+        Pending {
+            stream,
+            buf: Vec::new(),
+        }
     }
 
     /// Read what's available. Returns Some(args) once the request is complete,
@@ -159,4 +159,16 @@ pub fn reply(mut stream: UnixStream, code: i32, output: &str) {
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(1)));
     let _ = stream.write_all(format!("{code}\n{output}").as_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn empty_arguments_survive() {
+        let args: Vec<String> = ["keymap", "us", "", "caps:swapescape"]
+            .map(String::from)
+            .to_vec();
+        assert_eq!(super::decode(&super::encode(&args)), args);
+        assert!(super::decode(b"").is_empty());
+    }
 }

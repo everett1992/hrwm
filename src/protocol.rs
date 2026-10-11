@@ -1,7 +1,12 @@
 //! Client bindings for river's protocols, generated at compile time from the
 //! XML files in `protocol/` (copied from /usr/share/river-protocols/stable).
 
-#![allow(non_upper_case_globals, non_camel_case_types, unused_imports, dead_code)]
+#![allow(
+    non_upper_case_globals,
+    non_camel_case_types,
+    unused_imports,
+    dead_code
+)]
 #![allow(clippy::all)]
 
 pub use wayland_client;

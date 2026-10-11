@@ -16,7 +16,11 @@ const XKB_KEYSYM_CASE_INSENSITIVE: c_int = 1;
 
 fn keysym(name: &str) -> Option<u32> {
     // bindings match the unshifted keysym, so Mod4-Shift-Z means Mod4-Shift-z
-    let name = if name.len() == 1 { name.to_ascii_lowercase() } else { name.to_string() };
+    let name = if name.len() == 1 {
+        name.to_ascii_lowercase()
+    } else {
+        name.to_string()
+    };
     let c = CString::new(name).ok()?;
     let sym = unsafe { xkb_keysym_from_name(c.as_ptr(), 0) };
     if sym != 0 {
@@ -88,7 +92,9 @@ fn spawn(args: &[String]) -> Result<(), String> {
             Ok(())
         });
     }
-    cmd.spawn().map(|_| ()).map_err(|e| format!("spawn {prog}: {e}"))
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("spawn {prog}: {e}"))
 }
 
 pub fn autostart() {
@@ -132,9 +138,14 @@ fn dump(f: &Frame, wm: &Wm, out: &mut String) {
 impl Wm {
     /// Run one command. Output goes to `out`; errors are returned.
     pub fn run(&mut self, args: &[String], out: &mut String) -> Result<(), String> {
-        let Some((cmd, a)) = args.split_first() else { return Ok(()) };
+        let Some((cmd, a)) = args.split_first() else {
+            return Ok(());
+        };
         let a: Vec<String> = a.to_vec();
-        let arg = |i: usize| a.get(i).ok_or_else(|| format!("{cmd}: not enough arguments"));
+        let arg = |i: usize| {
+            a.get(i)
+                .ok_or_else(|| format!("{cmd}: not enough arguments"))
+        };
         let ti = self.cur_tag();
 
         match cmd.as_str() {
@@ -195,7 +206,12 @@ impl Wm {
                     return Err("keybind: missing command".into());
                 }
                 self.keybinds.retain(|k| (k.mods, k.sym) != (mods, sym));
-                self.keybinds.push(KeyBind { mods, sym, combo: combo.clone(), cmd: a[1..].to_vec() });
+                self.keybinds.push(KeyBind {
+                    mods,
+                    sym,
+                    combo: combo.clone(),
+                    cmd: a[1..].to_vec(),
+                });
                 self.binds_dirty = true;
             }
             "keyunbind" => {
@@ -221,8 +237,14 @@ impl Wm {
                 if a.len() < 2 {
                     return Err("mousebind: missing action".into());
                 }
-                self.mousebinds.retain(|m| (m.mods, m.button) != (mods, button));
-                self.mousebinds.push(MouseBind { mods, button, combo: combo.clone(), cmd: a[1..].to_vec() });
+                self.mousebinds
+                    .retain(|m| (m.mods, m.button) != (mods, button));
+                self.mousebinds.push(MouseBind {
+                    mods,
+                    button,
+                    combo: combo.clone(),
+                    cmd: a[1..].to_vec(),
+                });
                 self.binds_dirty = true;
             }
             "list_mousebinds" => {
@@ -281,12 +303,16 @@ impl Wm {
                 if self.tag_index(new).is_some() {
                     return Err(format!("tag \"{new}\" already exists"));
                 }
-                let i = self.tag_index(old).ok_or_else(|| format!("no tag \"{old}\""))?;
+                let i = self
+                    .tag_index(old)
+                    .ok_or_else(|| format!("no tag \"{old}\""))?;
                 self.tags[i].name = new.clone();
                 self.emit(&["tag_renamed", old, new]);
             }
             "use" => {
-                let t = self.tag_index(arg(0)?).ok_or_else(|| format!("no tag \"{}\"", a[0]))?;
+                let t = self
+                    .tag_index(arg(0)?)
+                    .ok_or_else(|| format!("no tag \"{}\"", a[0]))?;
                 self.use_tag(t);
             }
             "use_index" => {
@@ -301,7 +327,8 @@ impl Wm {
             }
             "move" | "move_index" => {
                 let t = if cmd == "move" {
-                    self.tag_index(arg(0)?).ok_or_else(|| format!("no tag \"{}\"", a[0]))?
+                    self.tag_index(arg(0)?)
+                        .ok_or_else(|| format!("no tag \"{}\"", a[0]))?
                 } else {
                     self.resolve_index(arg(0)?, a.iter().any(|x| x == "--skip-visible"))?
                 };
@@ -314,7 +341,9 @@ impl Wm {
                 }
             }
             "merge_tag" => {
-                let victim = self.tag_index(arg(0)?).ok_or_else(|| format!("no tag \"{}\"", a[0]))?;
+                let victim = self
+                    .tag_index(arg(0)?)
+                    .ok_or_else(|| format!("no tag \"{}\"", a[0]))?;
                 let target = match a.get(1) {
                     Some(n) => self.tag_index(n).ok_or_else(|| format!("no tag \"{n}\""))?,
                     None => ti,
@@ -341,7 +370,9 @@ impl Wm {
             }
             "tag_status" => {
                 let mon = match a.first() {
-                    Some(m) => self.monitor_by_ref(m).ok_or_else(|| format!("no monitor \"{m}\""))?,
+                    Some(m) => self
+                        .monitor_by_ref(m)
+                        .ok_or_else(|| format!("no monitor \"{m}\""))?,
                     None => self.focused_mon,
                 };
                 out.push('\t');
@@ -352,7 +383,10 @@ impl Wm {
                         Some(m) => c = if m == self.focused_mon { '%' } else { '-' },
                         None => {}
                     }
-                    if t.windows().iter().any(|w| self.wins.get(w).is_some_and(|w| w.urgent)) {
+                    if t.windows()
+                        .iter()
+                        .any(|w| self.wins.get(w).is_some_and(|w| w.urgent))
+                    {
                         c = '!';
                     }
                     out.push(c);
@@ -364,7 +398,10 @@ impl Wm {
             // --- frames ---
             "split" => {
                 let frac = match a.get(1) {
-                    Some(f) => Some(f.parse::<f64>().map_err(|_| format!("invalid fraction \"{f}\""))?),
+                    Some(f) => Some(
+                        f.parse::<f64>()
+                            .map_err(|_| format!("invalid fraction \"{f}\""))?,
+                    ),
                     None => None,
                 };
                 let hint = self.reference_rect();
@@ -385,7 +422,8 @@ impl Wm {
                 self.tags[ti].tree.cycle_layout(delta, &list);
             }
             "set_layout" => {
-                let l = Layout::parse(arg(0)?).ok_or_else(|| format!("invalid layout \"{}\"", a[0]))?;
+                let l =
+                    Layout::parse(arg(0)?).ok_or_else(|| format!("invalid layout \"{}\"", a[0]))?;
                 self.tags[ti].tree.focused_leaf_mut().layout = l;
             }
             "cycle_frame" => {
@@ -394,9 +432,13 @@ impl Wm {
                 self.tags[ti].float_focus = None;
             }
             "resize" => {
-                let dir = Dir::parse(arg(0)?).ok_or_else(|| format!("invalid direction \"{}\"", a[0]))?;
+                let dir =
+                    Dir::parse(arg(0)?).ok_or_else(|| format!("invalid direction \"{}\"", a[0]))?;
                 let delta = match a.get(1) {
-                    Some(d) => d.trim_start_matches('+').parse::<f64>().map_err(|_| format!("invalid delta \"{d}\""))?,
+                    Some(d) => d
+                        .trim_start_matches('+')
+                        .parse::<f64>()
+                        .map_err(|_| format!("invalid delta \"{d}\""))?,
                     None => 0.02,
                 };
                 if !self.tags[ti].tree.resize(dir, delta) {
@@ -419,14 +461,19 @@ impl Wm {
                 self.focus_or_shift(cmd == "shift", dir, external)?;
             }
             "swap" => {
-                let dir = Dir::parse(arg(0)?).ok_or_else(|| format!("invalid direction \"{}\"", a[0]))?;
+                let dir =
+                    Dir::parse(arg(0)?).ok_or_else(|| format!("invalid direction \"{}\"", a[0]))?;
                 self.swap(dir)?;
             }
             "cycle" => {
                 let d = a.first().and_then(|d| d.parse().ok()).unwrap_or(1);
                 let t = &mut self.tags[ti];
                 if t.float_focus.is_some() && !t.floats.is_empty() {
-                    let i = t.floats.iter().position(|&x| Some(x) == t.float_focus).unwrap_or(0) as i32;
+                    let i = t
+                        .floats
+                        .iter()
+                        .position(|&x| Some(x) == t.float_focus)
+                        .unwrap_or(0) as i32;
                     let n = t.floats.len() as i32;
                     t.float_focus = Some(t.floats[(i + d).rem_euclid(n) as usize]);
                 } else {
@@ -437,8 +484,12 @@ impl Wm {
                 let d = a.iter().find_map(|x| x.parse::<i32>().ok()).unwrap_or(1);
                 let all = self.tags[ti].windows();
                 if !all.is_empty() {
-                    let cur = self.focused_window().and_then(|f| all.iter().position(|&x| x == f));
-                    let i = cur.map(|c| (c as i32 + d).rem_euclid(all.len() as i32) as usize).unwrap_or(0);
+                    let cur = self
+                        .focused_window()
+                        .and_then(|f| all.iter().position(|&x| x == f));
+                    let i = cur
+                        .map(|c| (c as i32 + d).rem_euclid(all.len() as i32) as usize)
+                        .unwrap_or(0);
                     self.focus_win(all[i]);
                     self.raise(all[i]);
                 }
@@ -446,7 +497,9 @@ impl Wm {
             "jumpto" | "bring" => {
                 let id = match arg(0)?.as_str() {
                     "urgent" => self.next_urgent().ok_or("no urgent window")?,
-                    s => self.parse_winid(s).ok_or_else(|| format!("no window \"{s}\""))?,
+                    s => self
+                        .parse_winid(s)
+                        .ok_or_else(|| format!("no window \"{s}\""))?,
                 };
                 if cmd == "bring" && self.wins[&id].tag != ti {
                     self.detach(id);
@@ -471,7 +524,9 @@ impl Wm {
                 }
             }
             "focus_monitor" => {
-                let m = arg(0)?.parse::<usize>().map_err(|_| format!("invalid monitor \"{}\"", a[0]))?;
+                let m = arg(0)?
+                    .parse::<usize>()
+                    .map_err(|_| format!("invalid monitor \"{}\"", a[0]))?;
                 if m >= self.monitors.len() {
                     return Err(format!("no monitor {m}"));
                 }
@@ -480,7 +535,11 @@ impl Wm {
             "list_monitors" => {
                 for (i, m) in self.monitors.iter().enumerate() {
                     let r = m.rect;
-                    let focus = if i == self.focused_mon { " [FOCUS]" } else { "" };
+                    let focus = if i == self.focused_mon {
+                        " [FOCUS]"
+                    } else {
+                        ""
+                    };
                     out.push_str(&format!(
                         "{i}: {}x{}{:+}{:+} with tag \"{}\"{focus} {}\n",
                         r.w, r.h, r.x, r.y, self.tags[m.tag].name, m.name
@@ -491,7 +550,10 @@ impl Wm {
             // --- clients ---
             "close" => {
                 let id = match a.first() {
-                    Some(s) => Some(self.parse_winid(s).ok_or_else(|| format!("no window \"{s}\""))?),
+                    Some(s) => Some(
+                        self.parse_winid(s)
+                            .ok_or_else(|| format!("no window \"{s}\""))?,
+                    ),
                     None => self.focused_window(),
                 };
                 if let Some(id) = id {
@@ -503,7 +565,10 @@ impl Wm {
                 let focused = t.focused();
                 if let Some(id) = focused {
                     self.wins[&id].obj.close();
-                    if cmd == "close_and_remove" && t.float_focus.is_none() && t.tree.focused_leaf().wins.len() == 1 {
+                    if cmd == "close_and_remove"
+                        && t.float_focus.is_none()
+                        && t.tree.focused_leaf().wins.len() == 1
+                    {
                         self.tags[ti].tree.remove_frame();
                     }
                 } else {
@@ -582,7 +647,10 @@ impl Wm {
         if self.tags[ti].tree.swap_dir(dir) {
             return Ok(());
         }
-        let mine = self.tags[ti].tree.focused_window().ok_or("no focused window")?;
+        let mine = self.tags[ti]
+            .tree
+            .focused_window()
+            .ok_or("no focused window")?;
         let m = self
             .monitor_in_dir(dir)
             .filter(|_| self.settings.focus_crosses_monitor_boundaries)
@@ -650,7 +718,11 @@ impl Wm {
                 }
             }
         } else {
-            let done = if shift { t.tree.shift_dir(dir, external) } else { t.tree.focus_dir(dir, external) };
+            let done = if shift {
+                t.tree.shift_dir(dir, external)
+            } else {
+                t.tree.focus_dir(dir, external)
+            };
             if done {
                 return Ok(());
             }
@@ -736,11 +808,14 @@ impl Wm {
 
     /// "focus.floating" or "0x3.urgent" -> (window, attribute)
     fn client_attr<'a>(&self, rest: &'a str) -> Result<(u32, &'a str), String> {
-        let (who, attr) = rest.split_once('.').ok_or_else(|| format!("invalid attribute \"clients.{rest}\""))?;
+        let (who, attr) = rest
+            .split_once('.')
+            .ok_or_else(|| format!("invalid attribute \"clients.{rest}\""))?;
         let id = if who == "focus" {
             self.focused_window().ok_or("no focused window")?
         } else {
-            self.parse_winid(who).ok_or_else(|| format!("no window \"{who}\""))?
+            self.parse_winid(who)
+                .ok_or_else(|| format!("no window \"{who}\""))?
         };
         Ok((id, attr))
     }
@@ -787,8 +862,14 @@ mod tests {
     #[test]
     fn combos() {
         assert_eq!(parse_combo("Mod4-Shift-z").unwrap(), (65, "z".to_string()));
-        assert_eq!(parse_combo("Control-Alt-Delete").unwrap(), (12, "Delete".to_string()));
-        assert_eq!(parse_combo("Mod4+period").unwrap(), (64, "period".to_string()));
+        assert_eq!(
+            parse_combo("Control-Alt-Delete").unwrap(),
+            (12, "Delete".to_string())
+        );
+        assert_eq!(
+            parse_combo("Mod4+period").unwrap(),
+            (64, "period".to_string())
+        );
         assert_eq!(parse_combo("Mod4--").unwrap(), (64, "minus".to_string()));
         assert!(parse_combo("Hyper-x").is_err());
     }

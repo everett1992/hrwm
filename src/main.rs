@@ -75,7 +75,9 @@ fn waybar_tag(name: &str) -> i32 {
         query.push(output);
     }
     let print = || -> bool {
-        let Ok((0, status)) = ipc::request(&query) else { return false };
+        let Ok((0, status)) = ipc::request(&query) else {
+            return false;
+        };
         let Some(field) = status.split('\t').find(|f| f.get(1..) == Some(name)) else {
             return true;
         };
@@ -110,7 +112,9 @@ fn waybar_title() -> i32 {
         Err(_) => return 1,
     };
     print(&initial);
-    ipc::idle(Some("focus_changed|window_title_changed"), |f| print(f.get(2).copied().unwrap_or("")))
+    ipc::idle(Some("focus_changed|window_title_changed"), |f| {
+        print(f.get(2).copied().unwrap_or(""))
+    })
 }
 
 fn run_wm() {
@@ -166,14 +170,28 @@ fn run_wm() {
             eprintln!("hrwm: {e}");
             break;
         }
-        let Some(guard) = queue.prepare_read() else { continue };
+        let Some(guard) = queue.prepare_read() else {
+            continue;
+        };
 
         let mut fds = vec![
-            libc::pollfd { fd: guard.connection_fd().as_raw_fd(), events: libc::POLLIN, revents: 0 },
-            libc::pollfd { fd: listener.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+            libc::pollfd {
+                fd: guard.connection_fd().as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: listener.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
         ];
         for p in &pending {
-            fds.push(libc::pollfd { fd: p.stream.as_fd().as_raw_fd(), events: libc::POLLIN, revents: 0 });
+            fds.push(libc::pollfd {
+                fd: p.stream.as_fd().as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            });
         }
         let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
         if n < 0 {

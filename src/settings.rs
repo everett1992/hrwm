@@ -25,7 +25,12 @@ impl Color {
             "yellow" => Some(Color::rgb(255, 255, 0)),
             "orange" => Some(Color::rgb(255, 165, 0)),
             "gray" | "grey" => Some(Color::rgb(190, 190, 190)),
-            "transparent" => Some(Color { r: 0, g: 0, b: 0, a: 0 }),
+            "transparent" => Some(Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            }),
             _ => None,
         };
         if named.is_some() {
@@ -40,7 +45,12 @@ impl Color {
         match digits.len() {
             3 => Some(Color::rgb(digits[0] * 17, digits[1] * 17, digits[2] * 17)),
             6 => Some(Color::rgb(pair(0), pair(2), pair(4))),
-            8 => Some(Color { r: pair(0), g: pair(2), b: pair(4), a: pair(6) }),
+            8 => Some(Color {
+                r: pair(0),
+                g: pair(2),
+                b: pair(4),
+                a: pair(6),
+            }),
             _ => None,
         }
     }
@@ -207,7 +217,10 @@ fn parse_bool(cur: bool, v: &str) -> Result<bool, String> {
 }
 
 fn parse_int(cur: i32, v: &str) -> Result<i32, String> {
-    let n = |s: &str| s.parse::<i32>().map_err(|_| format!("invalid integer \"{v}\""));
+    let n = |s: &str| {
+        s.parse::<i32>()
+            .map_err(|_| format!("invalid integer \"{v}\""))
+    };
     // herbstluftwm accepts relative values like +=1 / -=1
     if let Some(d) = v.strip_prefix("+=") {
         Ok(cur + n(d)?)
@@ -236,9 +249,21 @@ impl Settings {
     }
 
     pub fn set(&mut self, name: &str, v: &str) -> Result<(), String> {
-        macro_rules! int { ($f:ident) => { self.$f = parse_int(self.$f, v)? } }
-        macro_rules! boolean { ($f:ident) => { self.$f = parse_bool(self.$f, v)? } }
-        macro_rules! color { ($f:ident) => { self.$f = parse_color(v)? } }
+        macro_rules! int {
+            ($f:ident) => {
+                self.$f = parse_int(self.$f, v)?
+            };
+        }
+        macro_rules! boolean {
+            ($f:ident) => {
+                self.$f = parse_bool(self.$f, v)?
+            };
+        }
+        macro_rules! color {
+            ($f:ident) => {
+                self.$f = parse_color(v)?
+            };
+        }
         match name {
             "window_gap" => int!(window_gap),
             "frame_gap" => int!(frame_gap),
@@ -317,7 +342,12 @@ impl Settings {
             "default_frame_layout" => self.default_frame_layout.name().to_string(),
             "show_frame_decorations" => {
                 let s = self.show_frame_decorations;
-                SHOW_FRAMES.iter().find(|(x, _)| *x == s).unwrap().1.to_string()
+                SHOW_FRAMES
+                    .iter()
+                    .find(|(x, _)| *x == s)
+                    .unwrap()
+                    .1
+                    .to_string()
             }
             _ => return Err(format!("unknown setting \"{name}\"")),
         })
@@ -339,7 +369,10 @@ mod tests {
         assert_eq!(Color::parse("#fff"), Some(Color::rgb(255, 255, 255)));
         assert_eq!(Color::parse("red"), Some(Color::rgb(255, 0, 0)));
         assert_eq!(Color::parse("#12"), None);
-        assert_eq!(Color::rgb(255, 0, 0).premultiplied_u32(), [u32::MAX, 0, 0, u32::MAX]);
+        assert_eq!(
+            Color::rgb(255, 0, 0).premultiplied_u32(),
+            [u32::MAX, 0, 0, u32::MAX]
+        );
     }
 
     #[test]
