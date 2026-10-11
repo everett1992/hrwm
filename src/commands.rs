@@ -275,10 +275,10 @@ impl Wm {
                     // before the autostart ran) get the new default too
                     let layout = self.settings.default_frame_layout;
                     for t in &mut self.tags {
-                        if let Frame::Leaf(l) = &mut t.tree {
-                            if l.wins.is_empty() {
-                                l.layout = layout;
-                            }
+                        if let Frame::Leaf(l) = &mut t.tree
+                            && l.wins.is_empty()
+                        {
+                            l.layout = layout;
                         }
                     }
                 }
@@ -332,12 +332,12 @@ impl Wm {
                 } else {
                     self.resolve_index(arg(0)?, a.iter().any(|x| x == "--skip-visible"))?
                 };
-                if let Some(w) = self.focused_window() {
-                    if t != ti {
-                        self.detach(w);
-                        self.attach(w, t, false);
-                        self.emit(&["tag_flags"]);
-                    }
+                if let Some(w) = self.focused_window()
+                    && t != ti
+                {
+                    self.detach(w);
+                    self.attach(w, t, false);
+                    self.emit(&["tag_flags"]);
                 }
             }
             "merge_tag" => {
@@ -727,19 +727,17 @@ impl Wm {
                 return Ok(());
             }
         }
-        if self.settings.focus_crosses_monitor_boundaries {
-            if let Some(m) = self.monitor_in_dir(dir) {
-                if shift {
-                    if let Some(w) = self.focused_window() {
-                        let target = self.monitors[m].tag;
-                        self.detach(w);
-                        self.attach(w, target, true);
-                        self.emit(&["tag_flags"]);
-                    }
-                }
-                self.focus_monitor(m);
-                return Ok(());
+        if self.settings.focus_crosses_monitor_boundaries
+            && let Some(m) = self.monitor_in_dir(dir)
+        {
+            if shift && let Some(w) = self.focused_window() {
+                let target = self.monitors[m].tag;
+                self.detach(w);
+                self.attach(w, target, true);
+                self.emit(&["tag_flags"]);
             }
+            self.focus_monitor(m);
+            return Ok(());
         }
         Err("no neighbour found".into())
     }

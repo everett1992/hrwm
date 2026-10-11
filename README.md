@@ -81,12 +81,9 @@ relative to the bar's own monitor.
 
 ## Development
 
-```sh
-cargo test
-cargo build --all-targets && tests/smoke.sh   # end to end, in a headless river
-```
-
-CI runs both on every push. Pushing a `v*` tag builds a release.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the checks CI runs
+(rustfmt, clippy, cargo-nextest and an end-to-end test in a headless river).
+Pushing a `v*` tag builds a release.
 
 `examples/vinput.rs` drives a nested or headless river session with a virtual
 keyboard and pointer, for testing keybindings without real input:

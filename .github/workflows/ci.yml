@@ -36,13 +36,21 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install dependencies
-        run: pacman -Syu --noconfirm --needed git rust libxkbcommon river foot ttf-dejavu
+        run: pacman -Syu --noconfirm --needed git rust cargo-nextest libxkbcommon river foot ttf-dejavu
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Build
         run: cargo build --locked --all-targets
       - name: Unit tests
-        run: cargo test --locked
+        run: cargo nextest run --locked
       - name: Smoke test against headless river
         run: tests/smoke.sh
+      - name: Compare vendored protocols with river's
+        # informational: a newer river may ship newer protocol versions
+        run: |
+          for f in protocol/*.xml; do
+            installed=/usr/share/river-protocols/stable/$(basename "$f")
+            cmp -s "$f" "$installed" \
+              || echo "::notice file=$f::differs from $installed (river $(river -version)); consider updating"
+          done

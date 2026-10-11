@@ -419,12 +419,10 @@ impl Frame {
         if l.wins.is_empty() {
             return false;
         }
-        if !external_only {
-            if let Some(i) = inner_neighbour(l, dir) {
-                l.wins.swap(i, l.sel);
-                l.sel = i;
-                return true;
-            }
+        if !external_only && let Some(i) = inner_neighbour(l, dir) {
+            l.wins.swap(i, l.sel);
+            l.sel = i;
+            return true;
         }
         let Some((parent, other)) = self.neighbour(&path, dir) else {
             return false;
@@ -941,7 +939,7 @@ fn layout_leaf(l: &Leaf, rect: Rect) -> Vec<(WinId, Rect, bool)> {
                     }
                     let mut cell = cur;
                     // gapless_grid (on by default): the last window fills the row
-                    if i == count - 1 && count % cols != 0 {
+                    if i == count - 1 && !count.is_multiple_of(cols) {
                         cell.w = rect.x + rect.w - cur.x;
                     } else if c == cols - 1 {
                         cell.w += rect.w % cols as i32;

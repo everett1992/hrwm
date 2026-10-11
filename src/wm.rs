@@ -545,13 +545,14 @@ impl Wm {
         self.detach(id);
         let w = self.wins.get_mut(&id).unwrap();
         w.floating = on;
-        if on && w.float_rect.is_none() {
-            if let Place::Tiled { slot } = place {
-                let content = slot.inset(self.settings.window_border_width);
-                let (nw, nh) = w.natural.unwrap_or((content.w, content.h));
-                let (cx, cy) = content.center();
-                w.float_rect = Some(Rect::new(cx - nw / 2, cy - nh / 2, nw, nh));
-            }
+        if on
+            && w.float_rect.is_none()
+            && let Place::Tiled { slot } = place
+        {
+            let content = slot.inset(self.settings.window_border_width);
+            let (nw, nh) = w.natural.unwrap_or((content.w, content.h));
+            let (cx, cy) = content.center();
+            w.float_rect = Some(Rect::new(cx - nw / 2, cy - nh / 2, nw, nh));
         }
         self.attach(id, tag, focused);
     }
@@ -688,10 +689,10 @@ impl Wm {
                         continue;
                     };
                     if cmd.len() == 1 && matches!(cmd[0].as_str(), "move" | "resize" | "zoom") {
-                        if self.seats[si].op.is_none() {
-                            if let Some(w) = self.seats[si].hovered {
-                                self.start_op(si, w, &cmd[0]);
-                            }
+                        if self.seats[si].op.is_none()
+                            && let Some(w) = self.seats[si].hovered
+                        {
+                            self.start_op(si, w, &cmd[0]);
                         }
                     } else {
                         let cmd = if cmd.first().map(String::as_str) == Some("call") {
@@ -781,10 +782,10 @@ impl Wm {
 
         self.seats.retain(|s| {
             if s.removed {
-                for (_, b) in s.keys.iter() {
+                for b in s.keys.values() {
                     b.destroy();
                 }
-                for (_, b) in s.buttons.iter() {
+                for b in s.buttons.values() {
                     b.destroy();
                 }
                 if let Some(ls) = &s.ls {
@@ -865,10 +866,10 @@ impl Wm {
             let mut tag = self.cur_tag();
             if let Some(t) = out.tag.as_deref().and_then(|n| self.tag_index(n)) {
                 tag = t;
-            } else if let Some(m) = out.monitor.as_deref().and_then(|m| m.parse::<usize>().ok()) {
-                if let Some(mon) = self.monitors.get(m) {
-                    tag = mon.tag;
-                }
+            } else if let Some(m) = out.monitor.as_deref().and_then(|m| m.parse::<usize>().ok())
+                && let Some(mon) = self.monitors.get(m)
+            {
+                tag = mon.tag;
             }
             let focus = out.focus.unwrap_or(false);
             self.attach(id, tag, focus);
@@ -888,29 +889,27 @@ impl Wm {
         let ids: Vec<WinId> = self.wins.keys().copied().collect();
         for id in ids {
             let w = self.wins.get_mut(&id).unwrap();
-            if let Some(on) = w.req_fullscreen.take() {
-                if w.fullscreen != on {
-                    w.fullscreen = on;
-                    let hex = w.hex_id();
-                    self.emit(&["fullscreen", if on { "on" } else { "off" }, &hex]);
-                }
+            if let Some(on) = w.req_fullscreen.take()
+                && w.fullscreen != on
+            {
+                w.fullscreen = on;
+                let hex = w.hex_id();
+                self.emit(&["fullscreen", if on { "on" } else { "off" }, &hex]);
             }
             let w = self.wins.get_mut(&id).unwrap();
             let mv = w.req_move.take();
             let rs = w.req_resize.take();
-            if let Some(seat) = mv {
-                if let Some(si) = self.seats.iter().position(|s| s.oid == seat) {
-                    if self.seats[si].op.is_none() {
-                        self.start_op(si, id, "move");
-                    }
-                }
+            if let Some(seat) = mv
+                && let Some(si) = self.seats.iter().position(|s| s.oid == seat)
+                && self.seats[si].op.is_none()
+            {
+                self.start_op(si, id, "move");
             }
-            if let Some((seat, _edges)) = rs {
-                if let Some(si) = self.seats.iter().position(|s| s.oid == seat) {
-                    if self.seats[si].op.is_none() {
-                        self.start_op(si, id, "resize");
-                    }
-                }
+            if let Some((seat, _edges)) = rs
+                && let Some(si) = self.seats.iter().position(|s| s.oid == seat)
+                && self.seats[si].op.is_none()
+            {
+                self.start_op(si, id, "resize");
             }
         }
     }
@@ -930,29 +929,27 @@ impl Wm {
                 if self.settings.raise_on_click {
                     self.raise(id);
                 }
-            } else if let (Some(id), false, true) = (entered, busy, moved) {
-                if self.settings.focus_follows_mouse
-                    && self.wins.get(&id).is_some_and(|w| w.place != Place::Hidden)
-                {
-                    self.focus_win(id);
-                }
+            } else if let (Some(id), false, true) = (entered, busy, moved)
+                && self.settings.focus_follows_mouse
+                && self.wins.get(&id).is_some_and(|w| w.place != Place::Hidden)
+            {
+                self.focus_win(id);
             }
-            if let Some(oid) = shell {
-                if let Some((tag, path)) = self
+            if let Some(oid) = shell
+                && let Some((tag, path)) = self
                     .decos
                     .iter()
                     .find(|d| d.shell.id() == oid)
                     .and_then(|d| d.frame.clone())
-                {
-                    if let Some(m) = self.monitor_of_tag(tag) {
-                        self.focused_mon = m;
-                    }
-                    if tag < self.tags.len() {
-                        let t = &mut self.tags[tag];
-                        if t.tree.leaf_count() > 0 && path_exists(&t.tree, &path) {
-                            t.tree.focus_frame(&path);
-                            t.float_focus = None;
-                        }
+            {
+                if let Some(m) = self.monitor_of_tag(tag) {
+                    self.focused_mon = m;
+                }
+                if tag < self.tags.len() {
+                    let t = &mut self.tags[tag];
+                    if t.tree.leaf_count() > 0 && path_exists(&t.tree, &path) {
+                        t.tree.focus_frame(&path);
+                        t.float_focus = None;
                     }
                 }
             }
@@ -1108,11 +1105,12 @@ impl Wm {
             // tiled windows in tree order; in a max frame only the selected
             // one is visible anyway
             let mut order: Vec<WinId> = tiles.iter().map(|t| t.win).collect();
-            if let Some(f) = focused {
-                if order.contains(&f) && tag_floating {
-                    order.retain(|&x| x != f);
-                    order.push(f);
-                }
+            if let Some(f) = focused
+                && order.contains(&f)
+                && tag_floating
+            {
+                order.retain(|&x| x != f);
+                order.push(f);
             }
             for &id in &tag.floats {
                 let Some(w) = self.wins.get_mut(&id) else {
@@ -1215,13 +1213,12 @@ impl Wm {
         self.deco_plan = plan;
 
         // layer surfaces (fuzzel, notifications) open on the focused monitor
-        if let Some(m) = self.monitors.get(self.focused_mon) {
-            if self.default_ls_output.as_ref() != Some(&m.oid) {
-                if let Some(ls) = &m.ls {
-                    ls.set_default();
-                    self.default_ls_output = Some(m.oid.clone());
-                }
-            }
+        if let Some(m) = self.monitors.get(self.focused_mon)
+            && self.default_ls_output.as_ref() != Some(&m.oid)
+            && let Some(ls) = &m.ls
+        {
+            ls.set_default();
+            self.default_ls_output = Some(m.oid.clone());
         }
     }
 
@@ -1643,10 +1640,10 @@ impl Dispatch<RiverOutputV1, ()> for Wm {
         match event {
             Event::Removed => {
                 m.removed = true;
-                if let Some(wl) = m.wl.take() {
-                    if wl.version() >= 3 {
-                        wl.release();
-                    }
+                if let Some(wl) = m.wl.take()
+                    && wl.version() >= 3
+                {
+                    wl.release();
                 }
             }
             Event::WlOutput { name } => {
@@ -1728,10 +1725,10 @@ impl Dispatch<RiverXkbBindingV1, (u32, u32)> for Wm {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if let river_xkb_binding_v1::Event::Pressed = event {
-            if let Some(k) = state.keybinds.iter().find(|k| (k.mods, k.sym) == *key) {
-                state.actions.push(Action::Cmd(k.cmd.clone()));
-            }
+        if let river_xkb_binding_v1::Event::Pressed = event
+            && let Some(k) = state.keybinds.iter().find(|k| (k.mods, k.sym) == *key)
+        {
+            state.actions.push(Action::Cmd(k.cmd.clone()));
         }
     }
 }
@@ -1792,10 +1789,10 @@ impl Dispatch<RiverLayerShellSeatV1, ObjectId> for Wm {
         _: &QueueHandle<Self>,
     ) {
         // once a layer surface lets go of the keyboard, give focus back
-        if let river_layer_shell_seat_v1::Event::FocusNone = event {
-            if let Some(s) = state.seats.iter_mut().find(|s| s.oid == *seat) {
-                s.focus_sent = None;
-            }
+        if let river_layer_shell_seat_v1::Event::FocusNone = event
+            && let Some(s) = state.seats.iter_mut().find(|s| s.oid == *seat)
+        {
+            s.focus_sent = None;
         }
     }
 }
@@ -1820,10 +1817,10 @@ impl Dispatch<WlOutput, ObjectId> for Wm {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if let wl_output::Event::Name { name } = event {
-            if let Some(m) = state.monitors.iter_mut().find(|m| m.oid == *output) {
-                m.name = name;
-            }
+        if let wl_output::Event::Name { name } = event
+            && let Some(m) = state.monitors.iter_mut().find(|m| m.oid == *output)
+        {
+            m.name = name;
         }
     }
 }
