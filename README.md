@@ -3,6 +3,8 @@ It is a port of [herbstluftwm](https://herbstluftwm.org) by Thorsten Wißmann an
 
 # hrwm
 
+[![CI](https://github.com/everett1992/hrwm/actions/workflows/ci.yml/badge.svg)](https://github.com/everett1992/hrwm/actions/workflows/ci.yml)
+
 A herbstluftwm-style manual tiling window manager for the [river](https://codeberg.org/river/river)
 Wayland compositor (0.4 or later, which runs the window manager as a separate program).
 
@@ -29,7 +31,9 @@ command line: `hrwm` is both the window manager and its `herbstclient`.
 
 ## Install
 
-Needs Rust, libxkbcommon and river 0.4.
+Prebuilt x86_64 Linux binaries are on the
+[releases page](https://github.com/everett1992/hrwm/releases); they need
+libxkbcommon and river 0.4. To build from source instead (needs Rust):
 
 ```sh
 cargo install --path .
@@ -79,7 +83,10 @@ relative to the bar's own monitor.
 
 ```sh
 cargo test
+cargo build --all-targets && tests/smoke.sh   # end to end, in a headless river
 ```
+
+CI runs both on every push. Pushing a `v*` tag builds a release.
 
 `examples/vinput.rs` drives a nested or headless river session with a virtual
 keyboard and pointer, for testing keybindings without real input:

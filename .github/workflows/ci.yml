@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Arch packages river 0.4; most distributions don't yet
+    container: archlinux:latest
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm --needed git rust libxkbcommon river foot ttf-dejavu
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --locked --all-targets
+      - name: Unit tests
+        run: cargo test --locked
+      - name: Smoke test against headless river
+        run: tests/smoke.sh

@@ -1,0 +1,35 @@
+name: Release
+
+# Push a tag like v0.1.0 to build and publish a release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # an older Ubuntu, so the binary runs on distributions with older glibc
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Build
+        run: cargo build --release --locked
+      - name: Package
+        run: |
+          name=hrwm-${GITHUB_REF_NAME}-x86_64-linux
+          mkdir "$name"
+          cp target/release/hrwm LICENSE README.md "$name/"
+          tar czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" hrwm-*.tar.gz hrwm-*.tar.gz.sha256 \
+            --title "hrwm $GITHUB_REF_NAME" --generate-notes
