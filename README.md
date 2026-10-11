@@ -91,5 +91,8 @@ cargo run --example vinput -- key 64 28    # Super+Return
 
 ## License
 
-BSD-2-Clause, like herbstluftwm; see [LICENSE](LICENSE). The river protocol
-files in `protocol/` are MIT.
+herbstluftwm's Simplified BSD License (SPDX: BSD-2-Clause-Views); see
+[LICENSE](LICENSE). Since hrwm's frame tree, layouts and command semantics are
+ported from herbstluftwm, its copyright notice is kept there alongside hrwm's.
+The river protocol files in `protocol/` are copyright Isaac Freund under the
+MIT license stated in each file.

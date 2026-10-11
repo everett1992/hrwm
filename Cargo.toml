@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "herbstluftwm-style frame tiling window manager for river 0.4"
 repository = "https://github.com/everett1992/hrwm"
-license = "BSD-2-Clause"
+license = "BSD-2-Clause-Views"
 
 [dependencies]
 bitflags = "2"

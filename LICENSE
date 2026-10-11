@@ -1,10 +1,6 @@
 Copyright 2026 Caleb Everett.
 Copyright 2011-2021 Thorsten Wißmann. All rights reserved.
 
-hrwm's frame tree, layouts and command semantics are ported from
-herbstluftwm (https://herbstluftwm.org), whose copyright notice is retained
-above as its license requires.
-
 This software is licensed under the "Simplified BSD License":
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -32,7 +28,3 @@ The views and conclusions contained in the software and documentation are those
 of the authors and should not be interpreted as representing official policies,
 either expressed or implied, of the copyright holder(s).
 
----
-
-The files in protocol/ are river's Wayland protocols, copyright Isaac Freund,
-under the MIT license stated in each file.
