@@ -49,6 +49,8 @@ pub enum Place {
 
 pub struct Win {
     pub id: WinId,
+    /// river's name for the window, kept across window manager restarts
+    pub identifier: String,
     pub obj: RiverWindowV1,
     node: RiverNodeV1,
     pub app_id: String,
@@ -262,6 +264,15 @@ pub struct Wm {
     buffers: HashMap<[u32; 4], WlBuffer>,
     pub keymaps: crate::keymap::Keymaps,
     pub inputs: crate::input::Inputs,
+    /// state saved by the previous hrwm, applied in the first manage sequence
+    restore: Option<crate::state::Saved>,
+    /// saved output name -> tag name, applied once the output's name arrives
+    restore_monitors: Vec<(String, String)>,
+    restore_focus: Option<String>,
+    /// what the state file holds
+    saved_text: String,
+    /// `wmexec`'s command, run once river has let go of this window manager
+    pub exec: Option<Vec<String>>,
 }
 
 impl Wm {
@@ -310,6 +321,11 @@ impl Wm {
             buffers: HashMap::new(),
             keymaps: Default::default(),
             inputs: Default::default(),
+            restore: crate::state::load(),
+            restore_monitors: Vec::new(),
+            restore_focus: None,
+            saved_text: String::new(),
+            exec: None,
         }
     }
 
@@ -668,7 +684,11 @@ impl Wm {
 
     fn manage(&mut self) {
         self.reap();
+        if let Some(saved) = self.restore.take() {
+            self.restore_state(saved);
+        }
         self.setup_new_outputs();
+        self.restore_monitor_tags();
         self.setup_new_seats();
         self.place_new_windows();
         self.handle_window_requests();
@@ -730,6 +750,170 @@ impl Wm {
         }
         self.arrange();
         self.update_focus();
+        self.save_state();
+    }
+
+    // ----- state kept across restarts ------------------------------------
+
+    /// Take back the previous hrwm's tags and windows. Only windows river
+    /// still has are matched; a state file from an earlier river session
+    /// matches none and is ignored.
+    fn restore_state(&mut self, saved: crate::state::Saved) {
+        let by_ident: HashMap<&str, WinId> = self
+            .wins
+            .values()
+            .filter(|w| w.new && !w.identifier.is_empty())
+            .map(|w| (w.identifier.as_str(), w.id))
+            .collect();
+        let ids: Vec<Option<WinId>> = saved
+            .wins
+            .iter()
+            .map(|w| by_ident.get(w.identifier.as_str()).copied())
+            .collect();
+        if saved.tags.is_empty() || ids.iter().all(Option::is_none) {
+            return;
+        }
+        let map = |n: WinId| ids.get(n as usize).copied().flatten();
+        self.tags = saved
+            .tags
+            .into_iter()
+            .map(|mut t| {
+                crate::state::remap(&mut t.tree, &map);
+                Tag {
+                    name: t.name,
+                    tree: t.tree,
+                    floats: t.floats.into_iter().filter_map(map).collect(),
+                    floating: t.floating,
+                    float_focus: t.float_focus.and_then(map),
+                    placeholder: false,
+                }
+            })
+            .collect();
+        for ti in 0..self.tags.len() {
+            for id in self.tags[ti].windows() {
+                let w = self.wins.get_mut(&id).unwrap();
+                w.tag = ti;
+                w.new = false;
+                self.init_window(id);
+            }
+        }
+        for (n, sw) in saved.wins.iter().enumerate() {
+            if let Some(w) = ids[n].and_then(|id| self.wins.get_mut(&id))
+                && !w.new
+            {
+                w.floating = sw.floating;
+                w.pseudotile = sw.pseudotile;
+                w.fullscreen = sw.fullscreen;
+                w.float_rect = sw.float_rect;
+            }
+        }
+        self.restore_monitors = saved.monitors;
+        self.restore_focus = saved.focus;
+        for t in 0..self.tags.len() {
+            let name = self.tags[t].name.clone();
+            self.emit(&["tag_added", &name]);
+        }
+        self.emit(&["tag_flags"]);
+    }
+
+    /// Show each output's saved tag on it once river has told us its name.
+    fn restore_monitor_tags(&mut self) {
+        for m in 0..self.monitors.len() {
+            let name = self.monitors[m].name.clone();
+            if name.is_empty() {
+                continue;
+            }
+            if let Some(pos) = self.restore_monitors.iter().position(|(o, _)| *o == name) {
+                let (_, tag) = self.restore_monitors.remove(pos);
+                if let Some(t) = self.tag_index(&tag)
+                    && self.monitors[m].tag != t
+                {
+                    // the monitor showing it takes this one's tag instead
+                    if let Some(other) = self.monitor_of_tag(t) {
+                        self.monitors[other].tag = self.monitors[m].tag;
+                    }
+                    self.monitors[m].tag = t;
+                    self.emit(&["tag_changed", &tag, &m.to_string()]);
+                }
+            }
+            if self.restore_focus.as_ref() == Some(&name) {
+                self.restore_focus = None;
+                self.focused_mon = m;
+            }
+        }
+    }
+
+    /// Write the state file if anything in it changed. Skipped while a
+    /// window is being dragged, which changes it every frame.
+    pub fn save_state(&mut self) {
+        if self.seats.iter().any(|s| s.op.is_some()) {
+            return;
+        }
+        let mut order: Vec<WinId> = self
+            .wins
+            .values()
+            .filter(|w| !w.new && !w.identifier.is_empty())
+            .map(|w| w.id)
+            .collect();
+        order.sort();
+        let num: HashMap<WinId, WinId> = order
+            .iter()
+            .enumerate()
+            .map(|(n, &id)| (id, n as WinId))
+            .collect();
+        let map = |id: WinId| num.get(&id).copied();
+        let mut saved = crate::state::Saved {
+            wins: order
+                .iter()
+                .map(|id| {
+                    let w = &self.wins[id];
+                    crate::state::SavedWin {
+                        identifier: w.identifier.clone(),
+                        floating: w.floating,
+                        pseudotile: w.pseudotile,
+                        fullscreen: w.fullscreen,
+                        float_rect: w.float_rect,
+                    }
+                })
+                .collect(),
+            tags: self
+                .tags
+                .iter()
+                .map(|t| {
+                    let mut tree = t.tree.clone();
+                    crate::state::remap(&mut tree, &map);
+                    crate::state::SavedTag {
+                        name: t.name.clone(),
+                        floating: t.floating,
+                        float_focus: t.float_focus.and_then(map),
+                        floats: t.floats.iter().filter_map(|&w| map(w)).collect(),
+                        tree,
+                    }
+                })
+                .collect(),
+            monitors: self
+                .monitors
+                .iter()
+                .filter(|m| !m.name.is_empty())
+                .map(|m| (m.name.clone(), self.tags[m.tag].name.clone()))
+                .collect(),
+            focus: self
+                .monitors
+                .get(self.focused_mon)
+                .map(|m| m.name.clone())
+                .filter(|n| !n.is_empty()),
+        };
+        // outputs not seen since the restart keep their saved tag
+        for (o, t) in &self.restore_monitors {
+            if !saved.monitors.iter().any(|(x, _)| x == o) {
+                saved.monitors.push((o.clone(), t.clone()));
+            }
+        }
+        let text = saved.to_text();
+        if text != self.saved_text {
+            crate::state::store(&text);
+            self.saved_text = text;
+        }
     }
 
     /// Destroy closed windows and removed outputs/seats.
@@ -843,10 +1027,22 @@ impl Wm {
         }
     }
 
+    /// What every window gets from us once, new or restored.
+    fn init_window(&mut self, id: WinId) {
+        let w = self.wins.get_mut(&id).unwrap();
+        w.obj
+            .set_capabilities(river_window_v1::Capabilities::Fullscreen);
+        if !w.only_csd {
+            w.obj.use_ssd();
+            w.ssd_sent = true;
+        }
+    }
+
     fn place_new_windows(&mut self) {
         let mut new: Vec<WinId> = self.wins.values().filter(|w| w.new).map(|w| w.id).collect();
         new.sort();
         for id in new {
+            self.init_window(id);
             let w = self.wins.get_mut(&id).unwrap();
             w.new = false;
             let props = Props {
@@ -859,12 +1055,6 @@ impl Wm {
             w.floating = out.floating.unwrap_or(false) || out.manage == Some(false);
             w.pseudotile = out.pseudotile.unwrap_or(false);
             w.fullscreen = out.fullscreen.unwrap_or(false);
-            w.obj
-                .set_capabilities(river_window_v1::Capabilities::Fullscreen);
-            if !w.only_csd {
-                w.obj.use_ssd();
-                w.ssd_sent = true;
-            }
             let mut tag = self.cur_tag();
             if let Some(t) = out.tag.as_deref().and_then(|n| self.tag_index(n)) {
                 tag = t;
@@ -1468,7 +1658,13 @@ impl Dispatch<RiverWindowManagerV1, ()> for Wm {
                 eprintln!("hrwm: another window manager is already running");
                 std::process::exit(1);
             }
-            Event::Finished => std::process::exit(0),
+            Event::Finished => {
+                if let Some(cmd) = state.exec.take() {
+                    state.save_state();
+                    crate::commands::wmexec(&cmd);
+                }
+                std::process::exit(0)
+            }
             Event::ManageStart => {
                 state.manage();
                 proxy.manage_finish();
@@ -1493,6 +1689,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for Wm {
                     wid,
                     Win {
                         id: wid,
+                        identifier: String::new(),
                         obj: id,
                         node,
                         app_id: String::new(),
@@ -1613,6 +1810,7 @@ impl Dispatch<RiverWindowV1, ()> for Wm {
                 Event::FullscreenRequested { .. } => w.req_fullscreen = Some(true),
                 Event::ExitFullscreenRequested => w.req_fullscreen = Some(false),
                 Event::UnreliablePid { unreliable_pid } => w.pid = unreliable_pid,
+                Event::Identifier { identifier } => w.identifier = identifier,
                 _ => {}
             }
         }

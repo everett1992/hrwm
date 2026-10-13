@@ -98,6 +98,38 @@ mapfile -t geoms < <("$hrwm" list_clients | cut -f4)
 [[ $("$hrwm" attr tags.by-name.two.client_count) == 1 ]] || fail "by-name: $("$hrwm" attr tags.by-name.two.client_count)"
 ! "$hrwm" attr tags.by-name.nope.client_count 2>/dev/null || fail "by-name: missing tag"
 
+# restarts keep tags, frame layouts and which window is where: river keeps
+# the windows and the next hrwm finds them through the state file
+"$hrwm" add three
+"$hrwm" use one
+"$hrwm" split right 0.3
+state() {
+    for t in one two three; do "$hrwm" dump "$t"; done | sed -E 's/0x[0-9a-f]+/W/g'
+    "$hrwm" list_clients | cut -f2,3 | sort
+    "$hrwm" attr tags.focus.name
+}
+wait_restart() {
+    for _ in $(seq 100); do
+        [[ -f $tmp/autostart-done ]] && "$hrwm" true 2>/dev/null && return 0
+        sleep 0.1
+    done
+    fail "hrwm did not come back after $1"
+}
+before=$(state)
+rm "$tmp/autostart-done"
+"$hrwm" wmexec
+wait_restart wmexec
+[[ $(state) == "$before" ]] || fail $'wmexec lost state:\n'"$before"$'\n---\n'"$(state)"
+kill -0 "$river_pid" || fail "river exited on wmexec"
+
+wm_pid=$(pgrep -P "$river_pid" -x hrwm) || fail "no hrwm under river"
+rm "$tmp/autostart-done"
+kill "$wm_pid"
+for _ in $(seq 50); do kill -0 "$wm_pid" 2>/dev/null || break; sleep 0.1; done
+"$hrwm" >> "$tmp/river.log" 2>&1 &
+wait_restart "a kill"
+[[ $(state) == "$before" ]] || fail $'restart lost state:\n'"$before"$'\n---\n'"$(state)"
+
 # input settings: accepted (a headless river has no libinput devices to show them)
 "$hrwm" input tap on || fail "input tap on"
 "$hrwm" input accel_speed 0.2 touchpad || fail "input accel_speed"

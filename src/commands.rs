@@ -112,6 +112,20 @@ pub fn autostart() {
     }
 }
 
+/// Replace this process with `cmd`, or with hrwm itself as found on PATH,
+/// so an updated binary takes over. Falls back to hrwm if `cmd` fails;
+/// returns only if that fails too.
+pub fn wmexec(cmd: &[String]) {
+    use std::os::unix::process::CommandExt;
+    let me = std::env::args().next().unwrap_or_else(|| "hrwm".into());
+    if let Some((prog, args)) = cmd.split_first() {
+        let e = std::process::Command::new(prog).args(args).exec();
+        eprintln!("hrwm: wmexec {prog}: {e}");
+    }
+    let e = std::process::Command::new(&me).exec();
+    eprintln!("hrwm: wmexec {me}: {e}");
+}
+
 fn dump(f: &Frame, wm: &Wm, out: &mut String) {
     match f {
         Frame::Leaf(l) => {
@@ -190,6 +204,14 @@ impl Wm {
             "reload" => {
                 self.emit(&["reload"]);
                 crate::commands::autostart();
+            }
+            "wmexec" => {
+                // river first lets go of this window manager (finished), then
+                // wmexec() runs the new one, which takes the windows back
+                // from the state file
+                let r = self.river.as_ref().ok_or("not connected to river")?;
+                self.exec = Some(a.clone());
+                r.stop();
             }
             "spawn" => spawn(&a)?,
             "emit_hook" => {

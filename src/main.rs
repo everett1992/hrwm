@@ -11,6 +11,7 @@ mod keymap;
 mod protocol;
 mod rules;
 mod settings;
+mod state;
 mod tree;
 mod wm;
 

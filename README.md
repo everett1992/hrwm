@@ -30,6 +30,11 @@ command line: `hrwm` is both the window manager and its `herbstclient`.
   - `input SETTING VALUE [DEVICE]` configures touchpads and mice (tap-to-click,
     disable-while-typing, natural scrolling, acceleration); `list_inputs` shows them
   - `jumpto urgent` (waiting on river to report urgency)
+  - restarts keep the layout: hrwm saves its tags, frame trees and which
+    window is where to `$XDG_RUNTIME_DIR/hrwm-$WAYLAND_DISPLAY.state`, and the
+    next hrwm takes river's windows back from it. `wmexec [COMMAND...]`
+    restarts in place (by default as `hrwm` from PATH, so an upgraded binary
+    takes over); killing hrwm and starting it again works too
 
 ## Install
 
