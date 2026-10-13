@@ -1,5 +1,6 @@
 //! Client bindings for river's protocols, generated at compile time from the
 //! XML files in `protocol/` (copied from /usr/share/river-protocols/stable).
+//! hrwm-activation-v1 isn't upstream; it comes from a patched river.
 
 #![allow(
     non_upper_case_globals,
@@ -41,10 +42,20 @@ pub mod __interfaces {
         use super::rwm::*;
         wayland_scanner::generate_interfaces!("protocol/river-libinput-config-v1.xml");
     }
+    pub mod rtg {
+        use super::rwm::*;
+        wayland_scanner::generate_interfaces!("protocol/river-touch-gestures-v1.xml");
+    }
+    pub mod hact {
+        use super::rwm::*;
+        wayland_scanner::generate_interfaces!("protocol/hrwm-activation-v1.xml");
+    }
 }
+use self::__interfaces::hact::*;
 use self::__interfaces::rim::*;
 use self::__interfaces::rlc::*;
 use self::__interfaces::rls::*;
+use self::__interfaces::rtg::*;
 use self::__interfaces::rwm::*;
 use self::__interfaces::rxc::*;
 use self::__interfaces::rxkb::*;
@@ -55,3 +66,5 @@ wayland_scanner::generate_client_code!("protocol/river-layer-shell-v1.xml");
 wayland_scanner::generate_client_code!("protocol/river-input-management-v1.xml");
 wayland_scanner::generate_client_code!("protocol/river-xkb-config-v1.xml");
 wayland_scanner::generate_client_code!("protocol/river-libinput-config-v1.xml");
+wayland_scanner::generate_client_code!("protocol/river-touch-gestures-v1.xml");
+wayland_scanner::generate_client_code!("protocol/hrwm-activation-v1.xml");

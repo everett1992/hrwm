@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="hrwm_activation_v1">
+  <copyright>
+    SPDX-FileCopyrightText: © 2026 Caleb Everett
+    SPDX-License-Identifier: MIT
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to
+    deal in the Software without restriction, including without limitation the
+    rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+    sell copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+    IN THE SOFTWARE.
+  </copyright>
+
+  <description summary="window activation requests">
+    This protocol informs the river-window-management-v1 window manager when a
+    window requests activation, for example through xdg-activation-v1.
+
+    It is not part of upstream river.
+
+    The key words "must", "must not", "required", "shall", "shall not",
+    "should", "should not", "recommended", "may", and "optional" in this
+    document are to be interpreted as described in IETF RFC 2119.
+  </description>
+
+  <interface name="hrwm_activation_v1" version="1">
+    <description summary="activation global interface">
+      This global interface should only be advertised to the client if the
+      river_window_manager_v1 global is also advertised.
+
+      Events are only sent to the client that is bound to the
+      river_window_manager_v1 global.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the object">
+        This request indicates that the client will no longer use the object
+        and that it may be safely destroyed.
+      </description>
+    </request>
+
+    <event name="activation_requested">
+      <description summary="a window requested activation">
+        The window has requested to be activated, perhaps to get the user's
+        attention.
+
+        The xdg-activation-v1 protocol for example allows windows to request
+        activation, and X11 windows may do so by sending a _NET_ACTIVE_WINDOW
+        message, setting _NET_WM_STATE_DEMANDS_ATTENTION or setting the ICCCM
+        urgency hint.
+
+        The window manager is free to ignore this request, focus the window,
+        mark the window as urgent, or do whatever else it chooses.
+
+        This event is sent as part of the window state preceding a
+        river_window_manager_v1.manage_start event and will be followed by that
+        manage_start event.
+      </description>
+      <arg name="window" type="object" interface="river_window_v1"/>
+    </event>
+  </interface>
+</protocol>

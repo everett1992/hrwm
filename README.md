@@ -29,18 +29,26 @@ command line: `hrwm` is both the window manager and its `herbstclient`.
   - `keymap LAYOUT [VARIANT [OPTIONS]]` sets the keyboard layout
   - `input SETTING VALUE [DEVICE]` configures touchpads and mice (tap-to-click,
     disable-while-typing, natural scrolling, acceleration); `list_inputs` shows them
-  - `jumpto urgent` (waiting on river to report urgency)
   - restarts keep the layout: hrwm saves its tags, frame trees and which
     window is where to `$XDG_RUNTIME_DIR/hrwm-$WAYLAND_DISPLAY.state`, and the
     next hrwm takes river's windows back from it. `wmexec [COMMAND...]`
     restarts in place (by default as `hrwm` from PATH, so an upgraded binary
     takes over); killing hrwm and starting it again works too
+  - `gesturebind GESTURE COMMAND...` runs a command on a touchscreen gesture
+    (river 0.5+): `N-swipe-up|down|left|right`, `N-pinch-in|out`, or
+    `edge-top|bottom|left|right` for one finger swiping in from that edge;
+    `gestureunbind` and `list_gesturebinds` go with it
+  - windows asking for activation (xdg-activation-v1, X11 urgency) become
+    urgent instead of taking focus, drawn with `window_border_urgent_color`
+    until focused; `jumpto urgent` goes to them. Stock river drops these
+    requests, so this needs a river patched to add the
+    `hrwm-activation-v1` protocol in `protocol/`
 
 ## Install
 
 Prebuilt x86_64 Linux binaries are on the
 [releases page](https://github.com/everett1992/hrwm/releases); they need
-libxkbcommon and river 0.4. To build from source instead (needs Rust):
+libxkbcommon and river 0.4 or later. To build from source instead (needs Rust):
 
 ```sh
 cargo install --path .

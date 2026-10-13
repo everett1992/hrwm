@@ -18,7 +18,9 @@ use wayland_protocols::wp::viewporter::client::{
     wp_viewport::WpViewport, wp_viewporter::WpViewporter,
 };
 
+use crate::gesture::{self, Dir, Gesture};
 use crate::protocol::{
+    hrwm_activation_v1::{self, HrwmActivationV1},
     river_layer_shell_output_v1::{self, RiverLayerShellOutputV1},
     river_layer_shell_seat_v1::{self, RiverLayerShellSeatV1},
     river_layer_shell_v1::RiverLayerShellV1,
@@ -27,6 +29,9 @@ use crate::protocol::{
     river_pointer_binding_v1::{self, RiverPointerBindingV1},
     river_seat_v1::{self, RiverSeatV1},
     river_shell_surface_v1::RiverShellSurfaceV1,
+    river_touch_gesture_v1::{self, RiverTouchGestureV1},
+    river_touch_gestures_seat_v1::RiverTouchGesturesSeatV1,
+    river_touch_gestures_v1::RiverTouchGesturesV1,
     river_window_manager_v1::{self, RiverWindowManagerV1},
     river_window_v1::{self, RiverWindowV1},
     river_xkb_binding_v1::{self, RiverXkbBindingV1},
@@ -79,6 +84,8 @@ pub struct Win {
     req_fullscreen: Option<bool>,
     req_move: Option<ObjectId>,
     req_resize: Option<(ObjectId, u32)>,
+    req_touch_move: Option<(ObjectId, i32)>,
+    req_touch_resize: Option<(ObjectId, i32, u32)>,
     pub place: Place,
 }
 
@@ -165,9 +172,13 @@ pub struct Op {
     pub kind: OpKind,
     pub win: WinId,
     pub start: Rect,
+    /// the touch point driving the op, or None for the pointer
+    touch: Option<i32>,
     dx: i32,
     dy: i32,
     released: bool,
+    /// a touch op whose touch point turned out to be a mistake (a palm)
+    canceled: bool,
 }
 
 pub struct Seat {
@@ -178,6 +189,8 @@ pub struct Seat {
     ls: Option<RiverLayerShellSeatV1>,
     keys: HashMap<(u32, u32), RiverXkbBindingV1>,
     buttons: HashMap<(u32, u32), RiverPointerBindingV1>,
+    tg: Option<RiverTouchGesturesSeatV1>,
+    gestures: HashMap<Gesture, RiverTouchGestureV1>,
     pub hovered: Option<WinId>,
     entered: Option<WinId>,
     /// the pointer moved since the last manage sequence
@@ -201,6 +214,11 @@ pub struct MouseBind {
     pub mods: u32,
     pub button: u32,
     pub combo: String,
+    pub cmd: Vec<String>,
+}
+
+pub struct GestureBind {
+    pub gesture: Gesture,
     pub cmd: Vec<String>,
 }
 
@@ -235,6 +253,8 @@ pub struct Wm {
     compositor: Option<WlCompositor>,
     viewporter: Option<WpViewporter>,
     pixels: Option<WpSinglePixelBufferManagerV1>,
+    activation: Option<HrwmActivationV1>,
+    touch_gestures: Option<RiverTouchGesturesV1>,
 
     pub settings: Settings,
     pub rules: Rules,
@@ -247,9 +267,12 @@ pub struct Wm {
     pub seats: Vec<Seat>,
     pub keybinds: Vec<KeyBind>,
     pub mousebinds: Vec<MouseBind>,
+    pub gesturebinds: Vec<GestureBind>,
     pub binds_dirty: bool,
     pub actions: Vec<Action>,
     pub ipc_queue: Vec<(UnixStream, Vec<String>)>,
+    /// responses the main loop finishes writing as their clients read
+    pub replies: Vec<crate::ipc::Reply>,
     pub idle: Vec<UnixStream>,
     pub locked: bool,
     last_focus: Option<Option<WinId>>,
@@ -287,6 +310,8 @@ impl Wm {
             compositor: None,
             viewporter: None,
             pixels: None,
+            activation: None,
+            touch_gestures: None,
             settings,
             rules: Rules::default(),
             tags: vec![Tag {
@@ -305,9 +330,11 @@ impl Wm {
             seats: Vec::new(),
             keybinds: Vec::new(),
             mousebinds: Vec::new(),
+            gesturebinds: Vec::new(),
             binds_dirty: false,
             actions: Vec::new(),
             ipc_queue: Vec::new(),
+            replies: Vec::new(),
             idle: Vec::new(),
             locked: false,
             last_focus: None,
@@ -332,7 +359,8 @@ impl Wm {
     pub fn has_globals(&self) -> Result<(), String> {
         if self.river.is_none() {
             return Err(
-                "river_window_manager_v1 (version 4+) not found; is this river 0.4?".into(),
+                "river_window_manager_v1 (version 4+) not found; is this river 0.4 or later?"
+                    .into(),
             );
         }
         if self.xkb.is_none() {
@@ -636,18 +664,8 @@ impl Wm {
     }
 
     pub fn start_op(&mut self, seat: usize, win: WinId, action: &str) {
-        let Some(w) = self.wins.get(&win) else { return };
-        if w.fullscreen || !matches!(w.place, Place::Tiled { .. } | Place::Floating) {
+        let Some(start) = self.op_start_rect(win) else {
             return;
-        }
-        if !w.floating && !self.tags[w.tag].floating {
-            self.set_floating(win, true);
-        }
-        let w = &self.wins[&win];
-        let start = match (w.float_rect, w.dims) {
-            (Some(r), _) => r,
-            (None, Some((dw, dh))) => Rect::new(0, 0, dw, dh),
-            _ => return,
         };
         let (px, py) = self.seats[seat].pointer;
         let (cx, cy) = start.center();
@@ -663,21 +681,73 @@ impl Wm {
             },
             _ => return,
         };
-        let s = &mut self.seats[seat];
-        s.obj.op_start_pointer();
-        if !matches!(kind, OpKind::Move) {
-            w.obj.inform_resize_start();
+        self.seats[seat].obj.op_start_pointer();
+        self.begin_op(seat, win, kind, start, None);
+    }
+
+    /// A move (edges None) or resize the window asked for with a touch point.
+    fn start_touch_op(&mut self, seat: usize, win: WinId, touch: i32, edges: Option<u32>) {
+        if self.seats[seat].obj.version() < 6 {
+            return;
         }
-        s.op = Some(Op {
+        let Some(start) = self.op_start_rect(win) else {
+            return;
+        };
+        // no pointer to pick a corner from, so take the client's edges
+        let kind = match edges {
+            None => OpKind::Move,
+            Some(e) => OpKind::Resize {
+                left: e & river_window_v1::Edges::Left.bits() != 0,
+                top: e & river_window_v1::Edges::Top.bits() != 0,
+            },
+        };
+        self.seats[seat].obj.op_start_touch(touch);
+        self.begin_op(seat, win, kind, start, Some(touch));
+    }
+
+    /// The floating geometry an op on `win` starts from, floating it first.
+    fn op_start_rect(&mut self, win: WinId) -> Option<Rect> {
+        let w = self.wins.get(&win)?;
+        if w.fullscreen || !matches!(w.place, Place::Tiled { .. } | Place::Floating) {
+            return None;
+        }
+        if !w.floating && !self.tags[w.tag].floating {
+            self.set_floating(win, true);
+        }
+        let w = &self.wins[&win];
+        match (w.float_rect, w.dims) {
+            (Some(r), _) => Some(r),
+            (None, Some((dw, dh))) => Some(Rect::new(0, 0, dw, dh)),
+            _ => None,
+        }
+    }
+
+    fn begin_op(&mut self, seat: usize, win: WinId, kind: OpKind, start: Rect, touch: Option<i32>) {
+        if !matches!(kind, OpKind::Move) {
+            self.wins[&win].obj.inform_resize_start();
+        }
+        self.seats[seat].op = Some(Op {
             kind,
             win,
             start,
+            touch,
             dx: 0,
             dy: 0,
             released: false,
+            canceled: false,
         });
         self.focus_win(win);
         self.raise(win);
+    }
+
+    /// End a seat's op early, e.g. because its window closed.
+    fn end_op(seat: &mut Seat) {
+        if let Some(op) = seat.op.take() {
+            match op.touch {
+                Some(t) => seat.obj.op_end_touch(t),
+                None => seat.obj.op_end(),
+            }
+        }
     }
 
     // ----- the manage sequence -------------------------------------------
@@ -741,7 +811,10 @@ impl Wm {
                     1
                 }
             };
-            crate::ipc::reply(stream, code, &out);
+            let mut reply = crate::ipc::Reply::new(stream, code, &out);
+            if reply.poll() == Ok(false) {
+                self.replies.push(reply);
+            }
         }
 
         self.update_ops();
@@ -930,8 +1003,7 @@ impl Wm {
             self.by_obj.remove(&w.obj.id());
             for s in &mut self.seats {
                 if s.op.as_ref().is_some_and(|op| op.win == id) {
-                    s.obj.op_end();
-                    s.op = None;
+                    Self::end_op(s);
                 }
                 for f in [&mut s.hovered, &mut s.entered, &mut s.interacted] {
                     if *f == Some(id) {
@@ -977,6 +1049,12 @@ impl Wm {
                 if let Some(ls) = &s.ls {
                     ls.destroy();
                 }
+                for g in s.gestures.values() {
+                    g.destroy();
+                }
+                if let Some(tg) = &s.tg {
+                    tg.destroy();
+                }
                 s.obj.destroy();
             }
             !s.removed
@@ -1015,6 +1093,9 @@ impl Wm {
                 s.new = false;
                 if let Some(ls) = &self.layer_shell {
                     s.ls = Some(ls.get_seat(&s.obj, &self.qh, s.oid.clone()));
+                }
+                if let Some(tg) = &self.touch_gestures {
+                    s.tg = Some(tg.get_seat(&s.obj, &self.qh, ()));
                 }
                 if let Ok(theme) = std::env::var("XCURSOR_THEME") {
                     let size = std::env::var("XCURSOR_SIZE")
@@ -1103,6 +1184,21 @@ impl Wm {
             {
                 self.start_op(si, id, "resize");
             }
+            let w = self.wins.get_mut(&id).unwrap();
+            let tmv = w.req_touch_move.take();
+            let trs = w.req_touch_resize.take();
+            if let Some((seat, touch)) = tmv
+                && let Some(si) = self.seats.iter().position(|s| s.oid == seat)
+                && self.seats[si].op.is_none()
+            {
+                self.start_touch_op(si, id, touch, None);
+            }
+            if let Some((seat, touch, edges)) = trs
+                && let Some(si) = self.seats.iter().position(|s| s.oid == seat)
+                && self.seats[si].op.is_none()
+            {
+                self.start_touch_op(si, id, touch, Some(edges));
+            }
         }
     }
 
@@ -1157,10 +1253,16 @@ impl Wm {
                 self.seats[si].op = None;
                 continue;
             };
-            if op.released {
-                self.seats[si].obj.op_end();
+            if op.released || op.canceled {
+                // river ends a touch op itself when the touch point lifts
+                if op.touch.is_none() {
+                    self.seats[si].obj.op_end();
+                }
                 if !matches!(op.kind, OpKind::Move) {
                     w.obj.inform_resize_end();
+                }
+                if op.canceled {
+                    w.float_rect = Some(op.start);
                 }
                 self.seats[si].op = None;
                 continue;
@@ -1195,7 +1297,22 @@ impl Wm {
         };
         let keys: Vec<(u32, u32)> = self.keybinds.iter().map(|k| (k.mods, k.sym)).collect();
         let buttons: Vec<(u32, u32)> = self.mousebinds.iter().map(|b| (b.mods, b.button)).collect();
+        let gestures: Vec<Gesture> = self.gesturebinds.iter().map(|g| g.gesture).collect();
         for s in &mut self.seats {
+            s.gestures.retain(|g, o| {
+                let keep = gestures.contains(g);
+                if !keep {
+                    o.destroy();
+                }
+                keep
+            });
+            if let Some(tg) = &s.tg {
+                for &g in &gestures {
+                    s.gestures
+                        .entry(g)
+                        .or_insert_with(|| new_gesture(tg, g, qh));
+                }
+            }
             s.keys.retain(|k, b| {
                 let keep = keys.contains(k);
                 if !keep {
@@ -1599,6 +1716,64 @@ fn set_tiled(w: &mut Win, edges: u32) {
 
 // ----- Wayland dispatch --------------------------------------------------
 
+/// Create and enable river's recogniser for a gesture.
+fn new_gesture(
+    tg: &RiverTouchGesturesSeatV1,
+    g: Gesture,
+    qh: &QueueHandle<Wm>,
+) -> RiverTouchGestureV1 {
+    use river_touch_gesture_v1::{Direction, Edge};
+    let dir = |d: Dir| match d {
+        Dir::Up => Direction::Up,
+        Dir::Down => Direction::Down,
+        Dir::Left => Direction::Left,
+        Dir::Right => Direction::Right,
+    };
+    let o = tg.get_gesture(g.fingers(), qh, g);
+    match g {
+        Gesture::Swipe { dir: d, .. } => o.set_direction(dir(d), gesture::SWIPE_DISTANCE),
+        // river starts a pinch once the scale is at or past either bound
+        Gesture::Pinch { out: false, .. } => o.set_threshold_scale(gesture::PINCH_IN, f64::MAX),
+        Gesture::Pinch { out: true, .. } => o.set_threshold_scale(0.0, gesture::PINCH_OUT),
+        Gesture::Edge(e) => {
+            let edge = match e {
+                Dir::Up => Edge::Top,
+                Dir::Down => Edge::Bottom,
+                Dir::Left => Edge::Left,
+                Dir::Right => Edge::Right,
+            };
+            o.set_edge(edge, gesture::EDGE_DISTANCE);
+            o.set_direction(dir(e.inward()), gesture::SWIPE_DISTANCE);
+        }
+    }
+    o.enable();
+    o
+}
+
+impl Dispatch<RiverTouchGestureV1, Gesture> for Wm {
+    fn event(
+        state: &mut Self,
+        _: &RiverTouchGestureV1,
+        event: river_touch_gesture_v1::Event,
+        g: &Gesture,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let river_touch_gesture_v1::Event::Start = event
+            && let Some(b) = state.gesturebinds.iter().find(|b| b.gesture == *g)
+        {
+            state.actions.push(Action::Cmd(b.cmd.clone()));
+        }
+    }
+}
+
+fn edge_bits(edges: wayland_client::WEnum<river_window_v1::Edges>) -> u32 {
+    match edges {
+        wayland_client::WEnum::Value(e) => e.bits(),
+        wayland_client::WEnum::Unknown(u) => u,
+    }
+}
+
 impl Dispatch<wl_registry::WlRegistry, ()> for Wm {
     fn event(
         state: &mut Self,
@@ -1617,27 +1792,48 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Wm {
             return;
         };
         state.registry.get_or_insert_with(|| registry.clone());
+        // river's globals at the newest version both river and protocol/
+        // know, so one build works with river 0.4.x and 0.5
+        macro_rules! river {
+            ($i:ty) => {
+                Some(registry.bind::<$i, _, _>(
+                    name,
+                    version.min(<$i>::interface().version),
+                    qh,
+                    (),
+                ))
+            };
+        }
         match interface.as_str() {
             "wl_output" => {
                 state.output_globals.insert(name, version);
             }
             "river_window_manager_v1" if version >= 4 => {
-                state.river = Some(registry.bind(name, 4, qh, ()));
+                state.river = river!(RiverWindowManagerV1);
             }
-            "river_xkb_bindings_v1" => state.xkb = Some(registry.bind(name, 1, qh, ())),
-            "river_layer_shell_v1" => state.layer_shell = Some(registry.bind(name, 1, qh, ())),
+            "river_xkb_bindings_v1" => state.xkb = river!(RiverXkbBindingsV1),
+            "river_layer_shell_v1" => state.layer_shell = river!(RiverLayerShellV1),
             "wl_compositor" if version >= 4 => {
                 state.compositor = Some(registry.bind(name, 4, qh, ()))
             }
             "wp_viewporter" => state.viewporter = Some(registry.bind(name, 1, qh, ())),
-            "river_input_manager_v1" => state.keymaps.input = Some(registry.bind(name, 1, qh, ())),
-            "river_xkb_config_v1" => state.keymaps.config = Some(registry.bind(name, 1, qh, ())),
+            "river_input_manager_v1" => {
+                state.keymaps.input =
+                    river!(crate::protocol::river_input_manager_v1::RiverInputManagerV1)
+            }
+            "river_xkb_config_v1" => {
+                state.keymaps.config =
+                    river!(crate::protocol::river_xkb_config_v1::RiverXkbConfigV1)
+            }
             "river_libinput_config_v1" => {
-                state.inputs.config = Some(registry.bind(name, 1, qh, ()))
+                state.inputs.config =
+                    river!(crate::protocol::river_libinput_config_v1::RiverLibinputConfigV1)
             }
             "wp_single_pixel_buffer_manager_v1" => {
                 state.pixels = Some(registry.bind(name, 1, qh, ()))
             }
+            "hrwm_activation_v1" => state.activation = river!(HrwmActivationV1),
+            "river_touch_gestures_v1" => state.touch_gestures = river!(RiverTouchGesturesV1),
             _ => {}
         }
     }
@@ -1714,6 +1910,8 @@ impl Dispatch<RiverWindowManagerV1, ()> for Wm {
                         req_fullscreen: None,
                         req_move: None,
                         req_resize: None,
+                        req_touch_move: None,
+                        req_touch_resize: None,
                         place: Place::Hidden,
                     },
                 );
@@ -1739,6 +1937,8 @@ impl Dispatch<RiverWindowManagerV1, ()> for Wm {
                 ls: None,
                 keys: HashMap::new(),
                 buttons: HashMap::new(),
+                tg: None,
+                gestures: HashMap::new(),
                 hovered: None,
                 entered: None,
                 moved: false,
@@ -1801,12 +2001,16 @@ impl Dispatch<RiverWindowV1, ()> for Wm {
                 }
                 Event::PointerMoveRequested { seat } => w.req_move = Some(seat.id()),
                 Event::PointerResizeRequested { seat, edges } => {
-                    let edges = match edges {
-                        wayland_client::WEnum::Value(e) => e.bits(),
-                        wayland_client::WEnum::Unknown(u) => u,
-                    };
-                    w.req_resize = Some((seat.id(), edges));
+                    w.req_resize = Some((seat.id(), edge_bits(edges)));
                 }
+                Event::TouchMoveRequested { seat, touch_point } => {
+                    w.req_touch_move = Some((seat.id(), touch_point));
+                }
+                Event::TouchResizeRequested {
+                    seat,
+                    touch_point,
+                    edges,
+                } => w.req_touch_resize = Some((seat.id(), touch_point, edge_bits(edges))),
                 Event::FullscreenRequested { .. } => w.req_fullscreen = Some(true),
                 Event::ExitFullscreenRequested => w.req_fullscreen = Some(false),
                 Event::UnreliablePid { unreliable_pid } => w.pid = unreliable_pid,
@@ -1823,6 +2027,25 @@ impl Dispatch<RiverWindowV1, ()> for Wm {
             if state.focused_window() == Some(id) {
                 state.emit(&["window_title_changed", &hex, &title]);
             }
+        }
+    }
+}
+
+/// Windows asking for activation become urgent rather than taking focus.
+impl Dispatch<HrwmActivationV1, ()> for Wm {
+    fn event(
+        state: &mut Self,
+        _: &HrwmActivationV1,
+        event: hrwm_activation_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let hrwm_activation_v1::Event::ActivationRequested { window } = event;
+        if let Some(&id) = state.by_obj.get(&window.id())
+            && state.focused_window() != Some(id)
+        {
+            state.set_urgent(id, true);
         }
     }
 }
@@ -1899,14 +2122,44 @@ impl Dispatch<RiverSeatV1, ()> for Wm {
                 state.seats[si].shell_interacted = Some(shell_surface.id());
             }
             Event::OpDelta { dx, dy } => {
-                if let Some(op) = &mut state.seats[si].op {
+                if let Some(op) = &mut state.seats[si].op
+                    && op.touch.is_none()
+                {
                     op.dx = dx;
                     op.dy = dy;
                 }
             }
             Event::OpRelease => {
-                if let Some(op) = &mut state.seats[si].op {
+                if let Some(op) = &mut state.seats[si].op
+                    && op.touch.is_none()
+                {
                     op.released = true;
+                }
+            }
+            Event::OpDeltaTouch {
+                touch_point,
+                dx,
+                dy,
+            } => {
+                if let Some(op) = &mut state.seats[si].op
+                    && op.touch == Some(touch_point)
+                {
+                    op.dx = dx;
+                    op.dy = dy;
+                }
+            }
+            Event::OpReleaseTouch { touch_point } => {
+                if let Some(op) = &mut state.seats[si].op
+                    && op.touch == Some(touch_point)
+                {
+                    op.released = true;
+                }
+            }
+            Event::OpCancelTouch { touch_point } => {
+                if let Some(op) = &mut state.seats[si].op
+                    && op.touch == Some(touch_point)
+                {
+                    op.canceled = true;
                 }
             }
             Event::PointerPosition { x, y } => {
@@ -2003,6 +2256,8 @@ impl Dispatch<RiverLayerShellSeatV1, ObjectId> for Wm {
 delegate_noop!(Wm: RiverXkbBindingsV1);
 delegate_noop!(Wm: RiverNodeV1);
 delegate_noop!(Wm: RiverLayerShellV1);
+delegate_noop!(Wm: RiverTouchGesturesV1);
+delegate_noop!(Wm: RiverTouchGesturesSeatV1);
 delegate_noop!(Wm: RiverShellSurfaceV1);
 delegate_noop!(Wm: WlCompositor);
 delegate_noop!(Wm: ignore WlSurface);

@@ -4,8 +4,9 @@ use std::ffi::{CString, c_char, c_int};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
+use crate::gesture::Gesture;
 use crate::tree::{Dir, Frame, Layout};
-use crate::wm::{KeyBind, MouseBind, Place, Wm};
+use crate::wm::{GestureBind, KeyBind, MouseBind, Place, Wm};
 
 #[link(name = "xkbcommon")]
 unsafe extern "C" {
@@ -277,6 +278,34 @@ impl Wm {
             "mouseunbind" => {
                 self.mousebinds.clear();
                 self.binds_dirty = true;
+            }
+            // hrwm extension: touchscreen gestures (see gesture.rs)
+            "gesturebind" => {
+                let gesture = Gesture::parse(arg(0)?)?;
+                if a.len() < 2 {
+                    return Err("gesturebind: missing command".into());
+                }
+                self.gesturebinds.retain(|g| g.gesture != gesture);
+                self.gesturebinds.push(GestureBind {
+                    gesture,
+                    cmd: a[1..].to_vec(),
+                });
+                self.binds_dirty = true;
+            }
+            "gestureunbind" => {
+                let g = arg(0)?;
+                if matches!(g.as_str(), "--all" | "-F") {
+                    self.gesturebinds.clear();
+                } else {
+                    let gesture = Gesture::parse(g)?;
+                    self.gesturebinds.retain(|b| b.gesture != gesture);
+                }
+                self.binds_dirty = true;
+            }
+            "list_gesturebinds" => {
+                for g in &self.gesturebinds {
+                    out.push_str(&format!("{}\t{}\n", g.gesture, g.cmd.join("\t")));
+                }
             }
 
             "input" => self.input_command(&a)?,

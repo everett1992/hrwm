@@ -1,5 +1,5 @@
 #!/bin/bash
-# End-to-end check against a real river 0.4: start a headless river running
+# End-to-end check against a real river (0.4 or later): start a headless river running
 # hrwm, open terminals through a keybinding (virtual keyboard) and through
 # commands, and check the resulting layout.
 #
@@ -13,6 +13,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 hrwm=$root/target/debug/hrwm
 vinput=$root/target/debug/examples/vinput
+activate=$root/target/debug/examples/activate
 tmp=$(mktemp -d)
 export XDG_RUNTIME_DIR=$tmp/run XDG_CONFIG_HOME=$tmp/config
 mkdir -p "$XDG_RUNTIME_DIR" "$XDG_CONFIG_HOME/hrwm"
@@ -134,5 +135,41 @@ wait_restart "a kill"
 "$hrwm" input tap on || fail "input tap on"
 "$hrwm" input accel_speed 0.2 touchpad || fail "input accel_speed"
 if "$hrwm" input tap sideways 2>/dev/null; then fail "input accepted a bad value"; fi
+
+# gestures: river (0.5+) accepts their setup (a protocol error would end hrwm)
+"$hrwm" gesturebind 3-swipe-left use_index +1 || fail "gesturebind swipe"
+"$hrwm" gesturebind 2-pinch-out fullscreen toggle || fail "gesturebind pinch"
+"$hrwm" gesturebind edge-bottom spawn foot || fail "gesturebind edge"
+if "$hrwm" gesturebind 1-pinch-in close 2>/dev/null; then fail "gesturebind accepted a 1 finger pinch"; fi
+"$hrwm" gestureunbind 2-pinch-out
+[[ $("$hrwm" list_gesturebinds) == $'3-swipe-left\tuse_index\t+1\nedge-bottom\tspawn\tfoot' ]] \
+    || fail "list_gesturebinds: $("$hrwm" list_gesturebinds)"
+sleep 0.2
+"$hrwm" attr tags.focus.name >/dev/null || fail "hrwm died after gesturebind"
+
+# activation requests mark a window urgent instead of focusing it; needs a
+# river with hrwm-activation-v1 (not upstream), so skip on a stock river
+globals=$(WAYLAND_DEBUG=1 "$vinput" move 0 0 2>&1)
+if [[ $globals == *'"hrwm_activation_v1"'* ]]; then
+    "$hrwm" use one
+    "$activate" 1 &
+    activate_pid=$!
+    wait_clients 3
+    act=$("$hrwm" list_clients | awk -F'\t' '$0 ~ /hrwm-activate/ {print $1; exit}')
+    [[ -n $act ]] || fail "activate window not found: $("$hrwm" list_clients)"
+    "$hrwm" use two
+    for _ in $(seq 50); do
+        [[ $("$hrwm" attr "clients.$act.urgent") == true ]] && break
+        sleep 0.1
+    done
+    [[ $("$hrwm" attr "clients.$act.urgent") == true ]] || fail "activation did not mark $act urgent"
+    [[ $("$hrwm" attr tags.focus.name) == two ]] || fail "activation stole focus"
+    "$hrwm" tag_status | grep -q '!one' || fail "urgent tag_status: $("$hrwm" tag_status)"
+    "$hrwm" jumpto urgent
+    [[ $("$hrwm" attr "clients.$act.urgent") == false ]] || fail "focus did not clear urgent"
+    kill "$activate_pid"
+else
+    echo "skipping activation: river lacks hrwm_activation_v1"
+fi
 
 echo "smoke test passed"

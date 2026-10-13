@@ -6,7 +6,7 @@ real-world testing are especially welcome.
 ## Setup
 
 You need a recent stable Rust (1.88 or later), libxkbcommon, and, for the
-end-to-end test, river 0.4, foot and any font. On Arch:
+end-to-end test, river 0.4 or later, foot and any font. On Arch:
 
 ```sh
 sudo pacman -S rustup libxkbcommon river foot ttf-dejavu
@@ -40,7 +40,8 @@ River keeps windows open while the window manager restarts.
 - Add a unit test in `src/tree.rs` for layout or frame logic, and extend
   `tests/smoke.sh` for behaviour that needs a real compositor.
 - The files in `protocol/` are river's protocol definitions, copied verbatim.
-  Update them from a river release, don't edit them.
+  Update them from a river release, don't edit them. The exception is
+  `hrwm-activation-v1.xml`, which comes from a patched river, not a release.
 - Pull requests from outside contributors run CI only after a maintainer
   approves the workflow run.
 

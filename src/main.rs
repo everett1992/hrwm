@@ -1,10 +1,11 @@
-//! hrwm: a herbstluftwm-style frame tiling window manager for river 0.4.
+//! hrwm: a herbstluftwm-style frame tiling window manager for river 0.4 and later.
 //!
 //! `hrwm` with no arguments runs the window manager (normally from
 //! ~/.config/river/init). With arguments it sends them as a command to the
 //! running window manager, like herbstclient.
 
 mod commands;
+mod gesture;
 mod input;
 mod ipc;
 mod keymap;
@@ -195,6 +196,13 @@ fn run_wm() {
                 revents: 0,
             });
         }
+        for r in &wm.replies {
+            fds.push(libc::pollfd {
+                fd: r.stream.as_fd().as_raw_fd(),
+                events: libc::POLLOUT,
+                revents: 0,
+            });
+        }
         let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
         if n < 0 {
             drop(guard);
@@ -221,6 +229,7 @@ fn run_wm() {
                 pending.push(Pending::new(stream));
             }
         }
+        wm.replies.retain_mut(|r| r.poll() == Ok(false));
         let mut i = 0;
         let mut got_command = false;
         while i < pending.len() {
