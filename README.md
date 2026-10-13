@@ -72,14 +72,15 @@ hc rule focus=on
 
 Most herbstluftwm autostarts work with few changes. `hrwm --help` lists the
 client modes; commands mirror herbstluftwm's (`list_keybinds`, `list_clients`,
-`dump`, `tag_status`, `attr`, ...).
+`dump`, `tag_status`, `attr`, ...). `list_tags` is hrwm's own.
 
 ### waybar
 
 `hrwm --waybar-tag NAME` and `hrwm --waybar-title` print JSON for waybar
 custom modules (`"return-type": "json"`). The tag module sets classes
 (`this-monitor`, `other-monitor`, `focused`, `occupied`, `empty`, `urgent`)
-relative to the bar's own monitor.
+relative to the bar's own monitor, from `list_tags [MONITOR]`, which prints
+each tag's name and those flags.
 
 ## Development
 

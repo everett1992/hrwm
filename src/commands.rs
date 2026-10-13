@@ -370,27 +370,56 @@ impl Wm {
                     t.floating = parse_bool_arg(t.floating, a.first())?;
                 }
             }
-            "tag_status" => {
+            "tag_status" | "list_tags" => {
                 let mon = match a.first() {
                     Some(m) => self
                         .monitor_by_ref(m)
                         .ok_or_else(|| format!("no monitor \"{m}\""))?,
                     None => self.focused_mon,
                 };
-                out.push('\t');
+                if cmd == "tag_status" {
+                    out.push('\t');
+                }
                 for (i, t) in self.tags.iter().enumerate() {
-                    let mut c = if t.windows().is_empty() { '.' } else { ':' };
-                    match self.monitor_of_tag(i) {
-                        Some(m) if m == mon => c = if m == self.focused_mon { '#' } else { '+' },
-                        Some(m) => c = if m == self.focused_mon { '%' } else { '-' },
-                        None => {}
-                    }
-                    if t.windows()
+                    let shown = self.monitor_of_tag(i);
+                    let focused = shown == Some(self.focused_mon);
+                    let occupied = !t.windows().is_empty();
+                    let urgent = t
+                        .windows()
                         .iter()
-                        .any(|w| self.wins.get(w).is_some_and(|w| w.urgent))
-                    {
-                        c = '!';
+                        .any(|w| self.wins.get(w).is_some_and(|w| w.urgent));
+                    if cmd == "list_tags" {
+                        // NAME, then every flag as a word (waybar's classes)
+                        out.push_str(&t.name);
+                        out.push('\t');
+                        let mut flags = Vec::new();
+                        match shown {
+                            Some(m) if m == mon => flags.push("this-monitor"),
+                            Some(_) => flags.push("other-monitor"),
+                            None => {}
+                        }
+                        if focused {
+                            flags.push("focused");
+                        }
+                        flags.push(if occupied { "occupied" } else { "empty" });
+                        if urgent {
+                            flags.push("urgent");
+                        }
+                        out.push_str(&flags.join(" "));
+                        out.push('\n');
+                        continue;
                     }
+                    // herbstluftwm's one character per tag: the most
+                    // important flag wins
+                    let c = match shown {
+                        _ if urgent => '!',
+                        Some(m) if m == mon && focused => '#',
+                        Some(m) if m == mon => '+',
+                        Some(_) if focused => '%',
+                        Some(_) => '-',
+                        None if occupied => ':',
+                        None => '.',
+                    };
                     out.push(c);
                     out.push_str(&t.name);
                     out.push('\t');
@@ -840,13 +869,32 @@ impl Wm {
                 _ => return Err(format!("unknown attribute \"{attr}\"")),
             });
         }
-        let ti = self.cur_tag();
+        // tags.focus.ATTR or tags.by-name.NAME.ATTR
+        let tag_attr = if let Some(attr) = path.strip_prefix("tags.focus.") {
+            Some((self.cur_tag(), attr))
+        } else if let Some(rest) = path.strip_prefix("tags.by-name.") {
+            let (name, attr) = rest
+                .rsplit_once('.')
+                .ok_or_else(|| format!("unsupported attribute \"{path}\""))?;
+            let ti = self
+                .tag_index(name)
+                .ok_or_else(|| format!("no tag \"{name}\""))?;
+            Some((ti, attr))
+        } else {
+            None
+        };
+        if let Some((ti, attr)) = tag_attr {
+            let t = &self.tags[ti];
+            return Ok(match attr {
+                "name" => t.name.clone(),
+                "index" => ti.to_string(),
+                "floating" => b(t.floating),
+                "client_count" => t.windows().len().to_string(),
+                "frame_count" => t.tree.leaf_count().to_string(),
+                _ => return Err(format!("unsupported attribute \"{path}\"")),
+            });
+        }
         Ok(match path {
-            "tags.focus.name" => self.tags[ti].name.clone(),
-            "tags.focus.index" => ti.to_string(),
-            "tags.focus.floating" => b(self.tags[ti].floating),
-            "tags.focus.client_count" => self.tags[ti].windows().len().to_string(),
-            "tags.focus.frame_count" => self.tags[ti].tree.leaf_count().to_string(),
             "tags.count" => self.tags.len().to_string(),
             "monitors.focus.index" => self.focused_mon.to_string(),
             "monitors.count" => self.monitors.len().to_string(),

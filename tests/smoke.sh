@@ -70,6 +70,8 @@ wait_clients() {
 }
 
 [[ $("$hrwm" tag_status) == $'\t#one\t.two\t' ]] || fail "tag_status: $("$hrwm" tag_status)"
+[[ $("$hrwm" list_tags) == $'one\tthis-monitor focused empty\ntwo\tempty' ]] \
+    || fail "list_tags: $("$hrwm" list_tags)"
 
 # a keybinding through river's xkb bindings
 "$vinput" key 64 28 # Super+Return
@@ -93,6 +95,8 @@ mapfile -t geoms < <("$hrwm" list_clients | cut -f4)
 "$hrwm" tag_status | grep -q ':two' || fail "move: $("$hrwm" tag_status)"
 "$hrwm" use two
 [[ $("$hrwm" attr tags.focus.name) == two ]] || fail "use"
+[[ $("$hrwm" attr tags.by-name.two.client_count) == 1 ]] || fail "by-name: $("$hrwm" attr tags.by-name.two.client_count)"
+! "$hrwm" attr tags.by-name.nope.client_count 2>/dev/null || fail "by-name: missing tag"
 
 # input settings: accepted (a headless river has no libinput devices to show them)
 "$hrwm" input tap on || fail "input tap on"

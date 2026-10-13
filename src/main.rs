@@ -66,31 +66,31 @@ fn json_escape(s: &str) -> String {
 /// One line of JSON per change for a waybar custom module (return-type json).
 ///
 /// Status is relative to the monitor of the bar running this (waybar sets
-/// WAYBAR_OUTPUT_NAME). Classes: `this-monitor` or `other-monitor` for tags
-/// being shown, plus `focused` when that monitor has focus; otherwise
-/// `occupied`, `empty` or `urgent`.
+/// WAYBAR_OUTPUT_NAME). Classes are `list_tags`'s flags: `this-monitor` or
+/// `other-monitor` for tags being shown, `focused` when that monitor has
+/// focus, `occupied` or `empty`, and `urgent`.
 fn waybar_tag(name: &str) -> i32 {
     use std::io::Write;
-    let mut query = vec!["tag_status".to_string()];
+    let mut query = vec!["list_tags".to_string()];
     if let Ok(output) = std::env::var("WAYBAR_OUTPUT_NAME") {
         query.push(output);
     }
     let print = || -> bool {
-        let Ok((0, status)) = ipc::request(&query) else {
+        let Ok((0, tags)) = ipc::request(&query) else {
             return false;
         };
-        let Some(field) = status.split('\t').find(|f| f.get(1..) == Some(name)) else {
+        let Some(flags) = tags
+            .lines()
+            .find_map(|l| l.strip_prefix(name)?.strip_prefix('\t'))
+        else {
             return true;
         };
-        let classes = match field.chars().next() {
-            Some('#') => r#"["this-monitor","focused"]"#,
-            Some('+') => r#"["this-monitor"]"#,
-            Some('%') => r#"["other-monitor","focused"]"#,
-            Some('-') => r#"["other-monitor"]"#,
-            Some(':') => r#"["occupied"]"#,
-            Some('!') => r#"["urgent"]"#,
-            _ => r#"["empty"]"#,
-        };
+        let classes = flags
+            .split(' ')
+            .map(|f| format!("\"{f}\""))
+            .collect::<Vec<_>>()
+            .join(",");
+        let classes = format!("[{classes}]");
         let n = json_escape(name);
         println!("{{\"text\":\"{n}\",\"class\":{classes},\"tooltip\":\"{n}\"}}");
         std::io::stdout().flush().is_ok()
