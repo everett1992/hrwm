@@ -680,7 +680,7 @@ impl Wm {
                         Place::Hidden => "hidden",
                         Place::Tiled { .. } => "tiled",
                         Place::Floating => "floating",
-                        Place::Fullscreen => "fullscreen",
+                        Place::Fullscreen | Place::Covering { .. } => "fullscreen",
                     };
                     let geom = w
                         .geometry(self.settings.window_border_width)

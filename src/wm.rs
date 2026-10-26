@@ -50,6 +50,11 @@ pub enum Place {
     },
     Floating,
     Fullscreen,
+    /// fullscreen, but laid out by hrwm over the whole monitor so the focused
+    /// window can be stacked above it; the rect is the content geometry
+    Covering {
+        rect: Rect,
+    },
 }
 
 pub struct Win {
@@ -81,6 +86,10 @@ pub struct Win {
     pub capture_sessions: u32,
     /// output river currently shows the window fullscreen on
     fs_output: Option<ObjectId>,
+    /// the window was told it is fullscreen
+    fs_informed: bool,
+    /// size the layout wants, kept while fullscreen holds proposals back
+    want_size: (i32, i32),
     /// content geometry while floating
     pub float_rect: Option<Rect>,
     /// size the window picked itself when offered 0x0
@@ -130,6 +139,7 @@ impl Win {
                 Some(Rect::new(x, y, dw, dh))
             }
             Place::Floating => self.float_rect.map(|r| Rect::new(r.x, r.y, dw, dh)),
+            Place::Covering { rect } => Some(Rect::new(rect.x, rect.y, dw, dh)),
             Place::Fullscreen | Place::Hidden => None,
         }
     }
@@ -1456,6 +1466,7 @@ impl Wm {
         let mut plan = Vec::new();
         let mut fullscreen_top = Vec::new();
         let mut sticky_top = Vec::new();
+        let mut focus_top = Vec::new();
 
         for ti in 0..self.tags.len() {
             let mon = self.monitor_of_tag(ti);
@@ -1534,26 +1545,56 @@ impl Wm {
                 order.push(id);
             }
 
-            // fullscreen
-            let output = mon.map(|m| (self.monitors[m].obj.clone(), self.monitors[m].oid.clone()));
+            // fullscreen. river draws nothing above a fullscreen window, so
+            // while a window that isn't fullscreen has the focus, the tag's
+            // fullscreen windows cover the monitor as normal windows and the
+            // focused one is stacked above them, like herbstluftwm's focus
+            // layer (monitor.cpp)
+            let output = mon.map(|m| {
+                let m = &self.monitors[m];
+                (m.obj.clone(), m.oid.clone(), m.rect)
+            });
+            let wants_fs = |w: &Win| w.fullscreen && w.place != Place::Hidden;
+            let lift = focused.filter(|f| {
+                order.contains(f)
+                    && !wants_fs(&self.wins[f])
+                    && order.iter().any(|id| wants_fs(&self.wins[id]))
+            });
             for &id in &order {
                 let w = self.wins.get_mut(&id).unwrap();
-                let want = w.fullscreen && w.place != Place::Hidden;
-                match (&output, want) {
-                    (Some((obj, oid)), true) => {
-                        if w.fs_output.as_ref() != Some(oid) {
-                            w.obj.fullscreen(obj);
+                match &output {
+                    Some((obj, oid, rect)) if wants_fs(w) => {
+                        if !w.fs_informed {
                             w.obj.inform_fullscreen();
-                            w.fs_output = Some(oid.clone());
+                            w.fs_informed = true;
                         }
-                        w.place = Place::Fullscreen;
+                        if lift.is_some() {
+                            if w.fs_output.take().is_some() {
+                                w.obj.exit_fullscreen();
+                            }
+                            if w.proposed != Some((rect.w, rect.h)) {
+                                w.obj.propose_dimensions(rect.w, rect.h);
+                                w.proposed = Some((rect.w, rect.h));
+                            }
+                            w.place = Place::Covering { rect: *rect };
+                        } else {
+                            if w.fs_output.as_ref() != Some(oid) {
+                                w.obj.fullscreen(obj);
+                                w.fs_output = Some(oid.clone());
+                            }
+                            w.place = Place::Fullscreen;
+                        }
                     }
                     _ => {
                         if w.fs_output.take().is_some() {
                             w.obj.exit_fullscreen();
+                        }
+                        if w.fs_informed {
                             w.obj.inform_not_fullscreen();
+                            w.fs_informed = false;
                             // the window needs a size again
-                            let size = w.proposed.take().unwrap_or((0, 0));
+                            w.proposed = None;
+                            let size = w.want_size;
                             propose(w, size);
                         }
                     }
@@ -1562,8 +1603,11 @@ impl Wm {
 
             if visible {
                 for &id in &order {
+                    if Some(id) == lift {
+                        continue;
+                    }
                     let w = &self.wins[&id];
-                    if w.place == Place::Fullscreen {
+                    if matches!(w.place, Place::Fullscreen | Place::Covering { .. }) {
                         fullscreen_top.push(id);
                     } else if w.sticky && w.place == Place::Floating {
                         sticky_top.push(id);
@@ -1571,6 +1615,7 @@ impl Wm {
                         stack.push(id);
                     }
                 }
+                focus_top.extend(lift);
             }
 
             // frame decorations
@@ -1619,6 +1664,7 @@ impl Wm {
 
         // focused window on top within its layer
         stack.extend(fullscreen_top);
+        stack.extend(focus_top);
         stack.extend(sticky_top);
         self.stack = stack;
         self.deco_plan = plan;
@@ -1678,6 +1724,10 @@ impl Wm {
             match w.place {
                 Place::Hidden => w.obj.hide(),
                 Place::Fullscreen => w.obj.show(),
+                Place::Covering { rect } => {
+                    w.obj.show();
+                    w.node.set_position(rect.x, rect.y);
+                }
                 Place::Tiled { slot } => {
                     w.obj.show();
                     let c = slot.inset(bw);
@@ -1711,7 +1761,7 @@ impl Wm {
                 self.settings.window_border_normal_color
             };
             let [r, g, b, a] = color.premultiplied_u32();
-            let edges = if bw > 0 {
+            let edges = if bw > 0 && !matches!(w.place, Place::Covering { .. }) {
                 river_window_v1::Edges::all()
             } else {
                 river_window_v1::Edges::empty()
@@ -1831,7 +1881,8 @@ fn edge_bits(edges: wayland_client::WEnum<river_window_v1::Edges>) -> u32 {
 }
 
 fn propose(w: &mut Win, size: (i32, i32)) {
-    if w.fs_output.is_some() || w.proposed == Some(size) {
+    w.want_size = size;
+    if w.fs_informed || w.proposed == Some(size) {
         return;
     }
     w.obj.propose_dimensions(size.0, size.1);
@@ -2054,6 +2105,8 @@ impl Dispatch<RiverWindowManagerV1, ()> for Wm {
                         bounds_sent: None,
                         dims: None,
                         proposed: None,
+                        fs_informed: false,
+                        want_size: (0, 0),
                         tiled_edges: None,
                         only_csd: false,
                         ssd_sent: false,
