@@ -91,6 +91,18 @@ mapfile -t geoms < <("$hrwm" list_clients | cut -f4)
 "$hrwm" dump | grep -q '^(split vertical:0.500000:1 (clients auto:0 0x1) (clients auto:0 0x2))$' \
     || fail "split: $("$hrwm" dump)"
 
+# focusing away from a fullscreen window lays it out over the monitor as a
+# normal window (river draws nothing above a fullscreen one), so the focused
+# window can be stacked above it
+fs_geom() { "$hrwm" list_clients | awk -F'\t' '$1 == "0x2" {print $3, $4}'; }
+"$hrwm" chain , fullscreen on , focus up
+sleep 0.3
+[[ $(fs_geom) == "fullscreen "*+0+0 ]] || fail "covering: $(fs_geom)"
+"$hrwm" focus down
+sleep 0.3
+[[ $(fs_geom) == "fullscreen -" ]] || fail "refocused fullscreen: $(fs_geom)"
+"$hrwm" fullscreen off
+
 # tags
 "$hrwm" move two
 "$hrwm" tag_status | grep -q ':two' || fail "move: $("$hrwm" tag_status)"
