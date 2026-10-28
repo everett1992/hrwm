@@ -487,7 +487,8 @@ impl Wm {
                     None => None,
                 };
                 let hint = self.reference_rect();
-                self.tags[ti].tree.split(arg(0)?, frac, hint)?;
+                let layout = self.settings.default_frame_layout;
+                self.tags[ti].tree.split(arg(0)?, frac, hint, layout)?;
             }
             "remove" => self.tags[ti].tree.remove_frame(),
             "rotate" => self.tags[ti].tree.rotate(),
