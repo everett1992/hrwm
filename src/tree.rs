@@ -485,8 +485,15 @@ impl Frame {
         true
     }
 
-    /// `split MODE [FRACTION]` on the focused frame.
-    pub fn split(&mut self, mode: &str, frac: Option<f64>, rect_hint: Rect) -> Result<(), String> {
+    /// `split MODE [FRACTION]` on the focused frame. The new frame gets
+    /// `layout`, the default_frame_layout.
+    pub fn split(
+        &mut self,
+        mode: &str,
+        frac: Option<f64>,
+        rect_hint: Rect,
+        layout: Layout,
+    ) -> Result<(), String> {
         let path = self.focus_path();
         let auto = if rect_hint.w > rect_hint.h {
             Align::Horizontal
@@ -551,7 +558,7 @@ impl Frame {
             leaving = count / 2;
         }
         let staying = count - leaving;
-        let mut second = Leaf::new(leaf.layout);
+        let mut second = Leaf::new(layout);
         second.wins = leaf.wins.split_off(staying);
         let mut sel = 0;
         if leaf.sel >= staying && count > 0 {
@@ -982,12 +989,22 @@ mod tests {
     #[test]
     fn split_keeps_focus_on_old_frame() {
         let mut t = tree_with(&[1]);
-        t.split("bottom", Some(0.82), Rect::new(0, 0, 100, 100))
-            .unwrap();
+        t.split(
+            "bottom",
+            Some(0.82),
+            Rect::new(0, 0, 100, 100),
+            Layout::Vertical,
+        )
+        .unwrap();
         assert_eq!(t.focus_path(), vec![0]);
         assert_eq!(t.focused_window(), Some(1));
-        t.split("left", Some(0.38), Rect::new(0, 0, 100, 100))
-            .unwrap();
+        t.split(
+            "left",
+            Some(0.38),
+            Rect::new(0, 0, 100, 100),
+            Layout::Vertical,
+        )
+        .unwrap();
         // old frame is now the second child and stays selected
         assert_eq!(t.focus_path(), vec![0, 1]);
         assert_eq!(t.focused_window(), Some(1));
@@ -997,8 +1014,13 @@ mod tests {
     fn split_then_shift_moves_window_into_new_frame() {
         // the user's `split` script: split bottom 0.82 , shift -e down
         let mut t = tree_with(&[1, 2]);
-        t.split("bottom", Some(0.82), Rect::new(0, 0, 100, 100))
-            .unwrap();
+        t.split(
+            "bottom",
+            Some(0.82),
+            Rect::new(0, 0, 100, 100),
+            Layout::Vertical,
+        )
+        .unwrap();
         assert!(t.shift_dir(Dir::Down, true));
         assert_eq!(t.focus_path(), vec![1]);
         assert_eq!(t.focused_window(), Some(2));
@@ -1008,7 +1030,8 @@ mod tests {
     #[test]
     fn focus_moves_between_frames_and_within_layout() {
         let mut t = tree_with(&[1, 2]);
-        t.split("right", None, Rect::default()).unwrap();
+        t.split("right", None, Rect::default(), Layout::Vertical)
+            .unwrap();
         t.shift_dir(Dir::Right, true);
         assert_eq!(t.focused_window(), Some(2));
         assert!(t.focus_dir(Dir::Left, false));
@@ -1021,7 +1044,8 @@ mod tests {
     #[test]
     fn remove_merges_windows_into_sibling() {
         let mut t = tree_with(&[1, 2]);
-        t.split("right", None, Rect::default()).unwrap();
+        t.split("right", None, Rect::default(), Layout::Vertical)
+            .unwrap();
         t.shift_dir(Dir::Right, true);
         t.remove_frame();
         let l = t.as_leaf().unwrap();
@@ -1044,7 +1068,8 @@ mod tests {
     #[test]
     fn resize_adjusts_nearest_split() {
         let mut t = tree_with(&[]);
-        t.split("right", Some(0.5), Rect::default()).unwrap();
+        t.split("right", Some(0.5), Rect::default(), Layout::Vertical)
+            .unwrap();
         assert!(t.resize(Dir::Right, 0.05));
         let Frame::Split(s) = &t else { panic!() };
         assert!((s.frac - 0.55).abs() < 1e-9);
@@ -1057,7 +1082,8 @@ mod tests {
     #[test]
     fn rotate_turns_horizontal_into_vertical() {
         let mut t = tree_with(&[1]);
-        t.split("right", Some(0.3), Rect::default()).unwrap();
+        t.split("right", Some(0.3), Rect::default(), Layout::Vertical)
+            .unwrap();
         t.rotate();
         let Frame::Split(s) = &t else { panic!() };
         assert_eq!(s.align, Align::Vertical);
@@ -1071,7 +1097,8 @@ mod tests {
         let mut g = geo();
         g.window_gap = 6;
         let mut t = tree_with(&[1, 2]);
-        t.split("bottom", Some(0.5), Rect::default()).unwrap();
+        t.split("bottom", Some(0.5), Rect::default(), Layout::Vertical)
+            .unwrap();
         t.shift_dir(Dir::Down, true);
         let area = Rect::new(0, 0, 100, 100);
         let (tiles, _) = t.compute(apply_monitor_gap(area, &g), &g);
@@ -1100,11 +1127,29 @@ mod tests {
         // cycling leaves Auto for the other orientation
         t.cycle_layout(1, &[Layout::Vertical, Layout::Horizontal]);
         assert_eq!(t.focused_leaf().layout, Layout::Horizontal);
-        // new frames from a split inherit Auto
+        // new frames from a split get the default layout, not their parent's
         let mut t = tree_with(&[1]);
-        t.focused_leaf_mut().layout = Layout::Auto;
-        t.split("right", None, Rect::default()).unwrap();
+        t.focused_leaf_mut().layout = Layout::Horizontal;
+        t.split("right", None, Rect::default(), Layout::Auto)
+            .unwrap();
+        assert_eq!(t.at(&[0]).as_leaf().unwrap().layout, Layout::Horizontal);
         assert_eq!(t.at(&[1]).as_leaf().unwrap().layout, Layout::Auto);
+    }
+
+    #[test]
+    fn auto_stacks_windows_in_a_narrow_split() {
+        // Mod-o (split right 0.62 , shift -e right) then a new window, on a
+        // wide monitor, from a horizontal frame with default_frame_layout auto
+        let mut t = tree_with(&[1]);
+        t.focused_leaf_mut().layout = Layout::Horizontal;
+        let mon = Rect::new(0, 0, 1000, 500);
+        t.split("right", Some(0.62), mon, Layout::Auto).unwrap();
+        assert!(t.shift_dir(Dir::Right, true));
+        t.insert(2, true);
+        let (tiles, _) = t.compute(mon, &geo());
+        // the right frame is 380x500, so its two windows are stacked
+        assert_eq!(tiles[0].rect, Rect::new(620, 0, 380, 250));
+        assert_eq!(tiles[1].rect, Rect::new(620, 250, 380, 250));
     }
 
     #[test]
@@ -1135,7 +1180,8 @@ mod tests {
     #[test]
     fn swap_exchanges_windows_across_frames() {
         let mut t = tree_with(&[1, 2]);
-        t.split("right", None, Rect::default()).unwrap();
+        t.split("right", None, Rect::default(), Layout::Vertical)
+            .unwrap();
         t.shift_dir(Dir::Right, true);
         t.focus_dir(Dir::Left, false);
         assert!(t.swap_dir(Dir::Right));
@@ -1149,8 +1195,10 @@ mod tests {
         // three frames side by side; the middle one is selected in the right
         // half, so `focus left` from the right lands in the middle
         let mut t = tree_with(&[1]);
-        t.split("right", None, Rect::default()).unwrap();
-        t.split("right", None, Rect::default()).unwrap();
+        t.split("right", None, Rect::default(), Layout::Vertical)
+            .unwrap();
+        t.split("right", None, Rect::default(), Layout::Vertical)
+            .unwrap();
         t.focus_frame(&[0, 1]);
         t.insert(2, true);
         t.focus_frame(&[1]);
@@ -1176,7 +1224,8 @@ mod tests {
     #[test]
     fn explode_splits_windows() {
         let mut t = tree_with(&[1, 2, 3, 4]);
-        t.split("explode", None, Rect::new(0, 0, 100, 100)).unwrap();
+        t.split("explode", None, Rect::new(0, 0, 100, 100), Layout::Vertical)
+            .unwrap();
         assert_eq!(t.at(&[0]).as_leaf().unwrap().wins, vec![1, 2]);
         assert_eq!(t.at(&[1]).as_leaf().unwrap().wins, vec![3, 4]);
         assert_eq!(t.focused_window(), Some(4));
