@@ -3,7 +3,7 @@
 # hrwm, open terminals through a keybinding (virtual keyboard) and through
 # commands, and check the resulting layout.
 #
-# Needs river, foot and a font installed, and debug builds of hrwm and the
+# Needs river, foot, grim and a font installed, and debug builds of hrwm and the
 # vinput example:
 #   cargo build && cargo build --example vinput && tests/smoke.sh
 #
@@ -139,6 +139,21 @@ sticky=$("$hrwm" list_clients | awk '$2 == "one" { print $1; exit }')
 "$hrwm" attr clients.$sticky.sticky off
 "$hrwm" use one
 [[ $("$hrwm" attr clients.$sticky.tag) == three ]] || fail "unstuck window followed"
+
+# nothing records the screen
+[[ $("$hrwm" attr capture_sessions) == 0 ]] || fail "capture_sessions: $("$hrwm" attr capture_sessions)"
+[[ $(timeout 1 "$hrwm" --waybar-capture | head -1) == '{"text":""}' ]] || fail "waybar-capture"
+
+# a screenshot is a capture session while it lasts
+timeout 5 "$hrwm" --idle capture_sessions > "$tmp/capture" &
+sleep 0.3
+grim "$tmp/shot.png" || fail "grim"
+for _ in $(seq 30); do
+    [[ $(cat "$tmp/capture") == $'capture_sessions\t1\ncapture_sessions\t0' ]] && break
+    sleep 0.1
+done
+[[ $(cat "$tmp/capture") == $'capture_sessions\t1\ncapture_sessions\t0' ]] \
+    || fail "capture hooks: $(cat "$tmp/capture")"
 
 # input settings: accepted (a headless river has no libinput devices to show them)
 "$hrwm" input tap on || fail "input tap on"

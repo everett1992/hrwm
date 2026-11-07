@@ -1,4 +1,4 @@
-//! hrwm: a herbstluftwm-style frame tiling window manager for river 0.4.
+//! hrwm: a herbstluftwm-style frame tiling window manager for river 0.4 and later.
 //!
 //! `hrwm` with no arguments runs the window manager (normally from
 //! ~/.config/river/init). With arguments it sends them as a command to the
@@ -28,6 +28,7 @@ const USAGE: &str = "usage: hrwm                      run the window manager
        hrwm --idle [REGEX]       print hooks as they happen
        hrwm --waybar-tag NAME    JSON for a waybar custom module showing one tag
        hrwm --waybar-title       JSON for a waybar custom module showing the focused title
+       hrwm --waybar-capture     JSON for a waybar custom module shown while the screen is captured
 ";
 
 fn main() {
@@ -47,6 +48,7 @@ fn main() {
             }
         },
         Some("--waybar-title") => std::process::exit(waybar_title()),
+        Some("--waybar-capture") => std::process::exit(waybar_capture()),
         Some(_) => std::process::exit(ipc::send(&args)),
     }
 }
@@ -116,6 +118,34 @@ fn waybar_title() -> i32 {
     print(&initial);
     ipc::idle(Some("focus_changed|window_title_changed"), |f| {
         print(f.get(2).copied().unwrap_or(""))
+    })
+}
+
+/// Empty (so waybar hides the module) unless something is recording the
+/// screen or a window; then the class is `capturing` and the tooltip says
+/// how many capture sessions are running.
+fn waybar_capture() -> i32 {
+    use std::io::Write;
+    let print = |n: &str| -> bool {
+        if n == "0" {
+            println!("{{\"text\":\"\"}}");
+        } else {
+            println!(
+                "{{\"text\":\"●\",\"class\":\"capturing\",\"tooltip\":\"{n} screen capture session(s)\"}}"
+            );
+        }
+        std::io::stdout().flush().is_ok()
+    };
+    let initial = match ipc::request(&["attr".into(), "capture_sessions".into()]) {
+        Ok((0, n)) => n.trim_end().to_string(),
+        Ok(_) => "0".into(),
+        Err(_) => return 1,
+    };
+    if !print(&initial) {
+        return 1;
+    }
+    ipc::idle(Some("capture_sessions"), |f| {
+        print(f.get(1).copied().unwrap_or("0"))
     })
 }
 

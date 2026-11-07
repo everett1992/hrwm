@@ -72,6 +72,8 @@ pub struct Win {
     pub urgent: bool,
     /// the window asked for async (tearing) presentation, e.g. a game
     wants_tearing: bool,
+    /// screen capture sessions recording this window
+    pub capture_sessions: u32,
     /// output river currently shows the window fullscreen on
     fs_output: Option<ObjectId>,
     /// content geometry while floating
@@ -88,8 +90,9 @@ pub struct Win {
     only_csd: bool,
     ssd_sent: bool,
     req_fullscreen: Option<bool>,
-    req_move: Option<ObjectId>,
-    req_resize: Option<(ObjectId, u32)>,
+    /// seat, and touch point for a touch request
+    req_move: Option<(ObjectId, Option<i32>)>,
+    req_resize: Option<(ObjectId, u32, Option<i32>)>,
     pub place: Place,
 }
 
@@ -166,8 +169,27 @@ pub struct Monitor {
     usable: Option<Rect>,
     pub tag: usize,
     pub prev_tag: Option<usize>,
+    /// screen capture sessions recording this output
+    capture_sessions: u32,
     removed: bool,
     new: bool,
+}
+
+impl Seat {
+    /// Drop the seat's op, ending it with river unless river already has:
+    /// touch ops end by themselves when the touch point lifts.
+    fn end_op(&mut self) {
+        match self.op.take() {
+            Some(Op { touch: None, .. }) => self.obj.op_end(),
+            Some(Op {
+                touch: Some(p),
+                released: false,
+                cancelled: false,
+                ..
+            }) => self.obj.op_end_touch(p),
+            _ => {}
+        }
+    }
 }
 
 impl Monitor {
@@ -190,7 +212,11 @@ pub struct Op {
     pub start: Rect,
     dx: i32,
     dy: i32,
+    /// the touch point driving a touch op; None for the pointer
+    touch: Option<i32>,
     released: bool,
+    /// the touch point turned out to be a palm: undo the op
+    cancelled: bool,
 }
 
 pub struct Seat {
@@ -294,6 +320,8 @@ pub struct Wm {
     restore_focus: Option<String>,
     /// what the state file holds
     saved_text: String,
+    /// screen capture sessions across all windows and outputs, as last reported
+    pub capture_sessions: u32,
     /// `wmexec`'s command, run once river has let go of this window manager
     pub exec: Option<Vec<String>>,
 }
@@ -348,6 +376,7 @@ impl Wm {
             restore_monitors: Vec::new(),
             restore_focus: None,
             saved_text: String::new(),
+            capture_sessions: 0,
             exec: None,
         }
     }
@@ -355,7 +384,8 @@ impl Wm {
     pub fn has_globals(&self) -> Result<(), String> {
         if self.river.is_none() {
             return Err(
-                "river_window_manager_v1 (version 4+) not found; is this river 0.4?".into(),
+                "river_window_manager_v1 (version 4+) not found; is this river 0.4 or later?"
+                    .into(),
             );
         }
         if self.xkb.is_none() {
@@ -701,19 +731,26 @@ impl Wm {
             .map(|(i, _)| i)
     }
 
-    pub fn start_op(&mut self, seat: usize, win: WinId, action: &str) {
-        let Some(w) = self.wins.get(&win) else { return };
+    /// Float a window about to be moved or resized and return where it is.
+    fn op_start_rect(&mut self, win: WinId) -> Option<Rect> {
+        let w = self.wins.get(&win)?;
         if w.fullscreen || !matches!(w.place, Place::Tiled { .. } | Place::Floating) {
-            return;
+            return None;
         }
         if !w.floating && !self.tags[w.tag].floating {
             self.set_floating(win, true);
         }
         let w = &self.wins[&win];
-        let start = match (w.float_rect, w.dims) {
-            (Some(r), _) => r,
-            (None, Some((dw, dh))) => Rect::new(0, 0, dw, dh),
-            _ => return,
+        match (w.float_rect, w.dims) {
+            (Some(r), _) => Some(r),
+            (None, Some((dw, dh))) => Some(Rect::new(0, 0, dw, dh)),
+            _ => None,
+        }
+    }
+
+    pub fn start_op(&mut self, seat: usize, win: WinId, action: &str) {
+        let Some(start) = self.op_start_rect(win) else {
+            return;
         };
         let (px, py) = self.seats[seat].pointer;
         let (cx, cy) = start.center();
@@ -729,18 +766,43 @@ impl Wm {
             },
             _ => return,
         };
-        let s = &mut self.seats[seat];
-        s.obj.op_start_pointer();
+        self.seats[seat].obj.op_start_pointer();
+        self.begin_op(seat, win, kind, start, None);
+    }
+
+    /// Move (no edges) or resize a window with a touch point, as a window
+    /// dragging its client-side titlebar or corner asks.
+    fn start_touch_op(&mut self, seat: usize, win: WinId, point: i32, edges: Option<u32>) {
+        let Some(start) = self.op_start_rect(win) else {
+            return;
+        };
+        let kind = match edges {
+            None => OpKind::Move,
+            Some(e) => {
+                let e = river_window_v1::Edges::from_bits_retain(e);
+                OpKind::Resize {
+                    left: e.contains(river_window_v1::Edges::Left),
+                    top: e.contains(river_window_v1::Edges::Top),
+                }
+            }
+        };
+        self.seats[seat].obj.op_start_touch(point);
+        self.begin_op(seat, win, kind, start, Some(point));
+    }
+
+    fn begin_op(&mut self, seat: usize, win: WinId, kind: OpKind, start: Rect, touch: Option<i32>) {
         if !matches!(kind, OpKind::Move) {
-            w.obj.inform_resize_start();
+            self.wins[&win].obj.inform_resize_start();
         }
-        s.op = Some(Op {
+        self.seats[seat].op = Some(Op {
             kind,
             win,
             start,
             dx: 0,
             dy: 0,
+            touch,
             released: false,
+            cancelled: false,
         });
         self.focus_win(win);
         self.raise(win);
@@ -817,7 +879,23 @@ impl Wm {
         self.follow_sticky();
         self.arrange();
         self.update_focus();
+        self.update_capture_sessions();
         self.save_state();
+    }
+
+    /// Tell bars when screen capture starts and stops (`capture_sessions N`).
+    fn update_capture_sessions(&mut self) {
+        let n = self.wins.values().map(|w| w.capture_sessions).sum::<u32>()
+            + self
+                .monitors
+                .iter()
+                .filter(|m| !m.removed)
+                .map(|m| m.capture_sessions)
+                .sum::<u32>();
+        if n != self.capture_sessions {
+            self.capture_sessions = n;
+            self.emit(&["capture_sessions", &n.to_string()]);
+        }
     }
 
     // ----- state kept across restarts ------------------------------------
@@ -999,8 +1077,7 @@ impl Wm {
             self.by_obj.remove(&w.obj.id());
             for s in &mut self.seats {
                 if s.op.as_ref().is_some_and(|op| op.win == id) {
-                    s.obj.op_end();
-                    s.op = None;
+                    s.end_op();
                 }
                 for f in [&mut s.hovered, &mut s.entered, &mut s.interacted] {
                     if *f == Some(id) {
@@ -1162,17 +1239,23 @@ impl Wm {
             let w = self.wins.get_mut(&id).unwrap();
             let mv = w.req_move.take();
             let rs = w.req_resize.take();
-            if let Some(seat) = mv
+            if let Some((seat, touch)) = mv
                 && let Some(si) = self.seats.iter().position(|s| s.oid == seat)
                 && self.seats[si].op.is_none()
             {
-                self.start_op(si, id, "move");
+                match touch {
+                    Some(p) => self.start_touch_op(si, id, p, None),
+                    None => self.start_op(si, id, "move"),
+                }
             }
-            if let Some((seat, _edges)) = rs
+            if let Some((seat, edges, touch)) = rs
                 && let Some(si) = self.seats.iter().position(|s| s.oid == seat)
                 && self.seats[si].op.is_none()
             {
-                self.start_op(si, id, "resize");
+                match touch {
+                    Some(p) => self.start_touch_op(si, id, p, Some(edges)),
+                    None => self.start_op(si, id, "resize"),
+                }
             }
         }
     }
@@ -1225,15 +1308,17 @@ impl Wm {
                 continue;
             };
             let Some(w) = self.wins.get_mut(&op.win) else {
-                self.seats[si].op = None;
+                self.seats[si].end_op();
                 continue;
             };
-            if op.released {
-                self.seats[si].obj.op_end();
+            if op.released || op.cancelled {
+                if op.cancelled {
+                    w.float_rect = Some(op.start);
+                }
                 if !matches!(op.kind, OpKind::Move) {
                     w.obj.inform_resize_end();
                 }
-                self.seats[si].op = None;
+                self.seats[si].end_op();
                 continue;
             }
             let s = op.start;
@@ -1690,6 +1775,13 @@ fn path_exists(tree: &Frame, path: &[usize]) -> bool {
     matches!(f, Frame::Leaf(_))
 }
 
+fn edge_bits(edges: wayland_client::WEnum<river_window_v1::Edges>) -> u32 {
+    match edges {
+        wayland_client::WEnum::Value(e) => e.bits(),
+        wayland_client::WEnum::Unknown(u) => u,
+    }
+}
+
 fn propose(w: &mut Win, size: (i32, i32)) {
     if w.fs_output.is_some() || w.proposed == Some(size) {
         return;
@@ -1749,7 +1841,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Wm {
                 state.output_globals.insert(name, version);
             }
             "river_window_manager_v1" if version >= 4 => {
-                state.river = Some(registry.bind(name, 4, qh, ()));
+                state.river = Some(registry.bind(name, version.min(6), qh, ()));
             }
             "river_xkb_bindings_v1" => state.xkb = Some(registry.bind(name, 1, qh, ())),
             "river_layer_shell_v1" => state.layer_shell = Some(registry.bind(name, 1, qh, ())),
@@ -1833,6 +1925,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for Wm {
                         sticky_at: None,
                         urgent: false,
                         wants_tearing: false,
+                        capture_sessions: 0,
                         fs_output: None,
                         float_rect: None,
                         natural: None,
@@ -1861,6 +1954,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for Wm {
                 usable: None,
                 tag: 0,
                 prev_tag: None,
+                capture_sessions: 0,
                 tearing: None,
                 removed: false,
                 new: true,
@@ -1933,14 +2027,21 @@ impl Dispatch<RiverWindowV1, ()> for Wm {
                         )
                     );
                 }
-                Event::PointerMoveRequested { seat } => w.req_move = Some(seat.id()),
+                Event::PointerMoveRequested { seat } => w.req_move = Some((seat.id(), None)),
                 Event::PointerResizeRequested { seat, edges } => {
-                    let edges = match edges {
-                        wayland_client::WEnum::Value(e) => e.bits(),
-                        wayland_client::WEnum::Unknown(u) => u,
-                    };
-                    w.req_resize = Some((seat.id(), edges));
+                    w.req_resize = Some((seat.id(), edge_bits(edges), None));
                 }
+                Event::TouchMoveRequested { seat, touch_point } => {
+                    w.req_move = Some((seat.id(), Some(touch_point)));
+                }
+                Event::TouchResizeRequested {
+                    seat,
+                    touch_point,
+                    edges,
+                } => {
+                    w.req_resize = Some((seat.id(), edge_bits(edges), Some(touch_point)));
+                }
+                Event::CaptureSessions { count } => w.capture_sessions = count,
                 Event::FullscreenRequested { .. } => w.req_fullscreen = Some(true),
                 Event::ExitFullscreenRequested => w.req_fullscreen = Some(false),
                 Event::UnreliablePid { unreliable_pid } => w.pid = unreliable_pid,
@@ -2012,7 +2113,7 @@ impl Dispatch<RiverOutputV1, ()> for Wm {
                 m.rect.w = width;
                 m.rect.h = height;
             }
-            _ => {}
+            Event::CaptureSessions { count } => m.capture_sessions = count,
         }
     }
 }
@@ -2056,6 +2157,32 @@ impl Dispatch<RiverSeatV1, ()> for Wm {
             Event::OpRelease => {
                 if let Some(op) = &mut state.seats[si].op {
                     op.released = true;
+                }
+            }
+            Event::OpDeltaTouch {
+                touch_point,
+                dx,
+                dy,
+            } => {
+                if let Some(op) = &mut state.seats[si].op
+                    && op.touch == Some(touch_point)
+                {
+                    op.dx = dx;
+                    op.dy = dy;
+                }
+            }
+            Event::OpReleaseTouch { touch_point } => {
+                if let Some(op) = &mut state.seats[si].op
+                    && op.touch == Some(touch_point)
+                {
+                    op.released = true;
+                }
+            }
+            Event::OpCancelTouch { touch_point } => {
+                if let Some(op) = &mut state.seats[si].op
+                    && op.touch == Some(touch_point)
+                {
+                    op.cancelled = true;
                 }
             }
             Event::PointerPosition { x, y } => {

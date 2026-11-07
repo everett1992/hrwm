@@ -893,6 +893,7 @@ impl Wm {
                 "pseudotile" => b(w.pseudotile),
                 "sticky" => b(w.sticky),
                 "urgent" => b(w.urgent),
+                "capture_sessions" => w.capture_sessions.to_string(),
                 _ => return Err(format!("unknown attribute \"{attr}\"")),
             });
         }
@@ -923,6 +924,7 @@ impl Wm {
         }
         Ok(match path {
             "tags.count" => self.tags.len().to_string(),
+            "capture_sessions" => self.capture_sessions.to_string(),
             "monitors.focus.index" => self.focused_mon.to_string(),
             "monitors.count" => self.monitors.len().to_string(),
             _ => return Err(format!("unsupported attribute \"{path}\"")),

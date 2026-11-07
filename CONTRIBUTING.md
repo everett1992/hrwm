@@ -6,10 +6,10 @@ real-world testing are especially welcome.
 ## Setup
 
 You need a recent stable Rust (1.88 or later), libxkbcommon, and, for the
-end-to-end test, river 0.4, foot and any font. On Arch:
+end-to-end test, river 0.4 or later, foot, grim and any font. On Arch:
 
 ```sh
-sudo pacman -S rustup libxkbcommon river foot ttf-dejavu
+sudo pacman -S rustup libxkbcommon river foot grim ttf-dejavu
 rustup default stable
 cargo install cargo-nextest --locked
 ```

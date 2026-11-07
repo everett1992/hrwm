@@ -36,6 +36,10 @@ command line: `hrwm` is both the window manager and its `herbstclient`.
   - `sticky` windows float, follow their monitor from tag to tag and stay
     above fullscreen windows, for picture-in-picture video (`sticky toggle`,
     `rule ... sticky=on`)
+  - a `capture_sessions N` hook and `hrwm --waybar-capture` show when the
+    screen or a window is being recorded or shared (river 0.5)
+  - windows dragged by a client-side titlebar or corner on a touchscreen move
+    and resize (river 0.5)
   - `jumpto urgent` (waiting on river to report urgency)
   - restarts keep the layout: hrwm saves its tags, frame trees and which
     window is where to `$XDG_RUNTIME_DIR/hrwm-$WAYLAND_DISPLAY.state`, and the
@@ -47,7 +51,7 @@ command line: `hrwm` is both the window manager and its `herbstclient`.
 
 Prebuilt x86_64 Linux binaries are on the
 [releases page](https://github.com/everett1992/hrwm/releases); they need
-libxkbcommon and river 0.4. To build from source instead (needs Rust):
+libxkbcommon and river 0.4 or later. To build from source instead (needs Rust):
 
 ```sh
 cargo install --path .
@@ -88,8 +92,10 @@ client modes; commands mirror herbstluftwm's (`list_keybinds`, `list_clients`,
 
 ### waybar
 
-`hrwm --waybar-tag NAME` and `hrwm --waybar-title` print JSON for waybar
-custom modules (`"return-type": "json"`). The tag module sets classes
+`hrwm --waybar-tag NAME`, `hrwm --waybar-title` and `hrwm --waybar-capture`
+print JSON for waybar custom modules (`"return-type": "json"`). The capture
+module is empty, so hidden, except while something records the screen or a
+window, when it shows ● with class `capturing`. The tag module sets classes
 (`this-monitor`, `other-monitor`, `focused`, `occupied`, `empty`, `urgent`)
 relative to the bar's own monitor, from `list_tags [MONITOR]`, which prints
 each tag's name and those flags.
