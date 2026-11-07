@@ -50,6 +50,7 @@ pub struct Outcome {
     pub floating: Option<bool>,
     pub pseudotile: Option<bool>,
     pub fullscreen: Option<bool>,
+    pub sticky: Option<bool>,
 }
 
 const CONDITIONS: &[&str] = &[
@@ -198,6 +199,7 @@ impl Rules {
                     "floating" => out.floating = Some(on_off(v)),
                     "pseudotile" => out.pseudotile = Some(on_off(v)),
                     "fullscreen" => out.fullscreen = Some(on_off(v)),
+                    "sticky" => out.sticky = Some(on_off(v)),
                     _ => {}
                 }
             }
@@ -274,6 +276,30 @@ mod tests {
         assert_eq!(r.apply(&dialog).pseudotile, Some(true));
         r.remove("-F").unwrap();
         assert_eq!(r.apply(&normal).focus, None);
+    }
+
+    #[test]
+    fn sticky_consequence() {
+        let mut r = Rules::default();
+        r.add(&args(&[
+            "class=firefox",
+            "title=Picture-in-Picture",
+            "sticky=on",
+        ]))
+        .unwrap();
+        let pip = Props {
+            app_id: "firefox",
+            title: "Picture-in-Picture",
+            has_parent: false,
+            pid: 1,
+            fixed_size: false,
+        };
+        let browser = Props {
+            title: "Mozilla Firefox",
+            ..pip
+        };
+        assert_eq!(r.apply(&pip).sticky, Some(true));
+        assert_eq!(r.apply(&browser).sticky, None);
     }
 
     #[test]

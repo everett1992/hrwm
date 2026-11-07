@@ -33,6 +33,9 @@ command line: `hrwm` is both the window manager and its `herbstclient`.
     floating=on` floats windows that can't be resized
   - fullscreen games that ask for tearing get it, for lower latency
     (`allow_tearing`, on by default)
+  - `sticky` windows float, follow their monitor from tag to tag and stay
+    above fullscreen windows, for picture-in-picture video (`sticky toggle`,
+    `rule ... sticky=on`)
   - `jumpto urgent` (waiting on river to report urgency)
   - restarts keep the layout: hrwm saves its tags, frame trees and which
     window is where to `$XDG_RUNTIME_DIR/hrwm-$WAYLAND_DISPLAY.state`, and the

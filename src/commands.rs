@@ -628,7 +628,7 @@ impl Wm {
                     self.tags[ti].tree.remove_frame();
                 }
             }
-            "fullscreen" | "pseudotile" => {
+            "fullscreen" | "pseudotile" | "sticky" => {
                 let id = self.focused_window().ok_or("no focused window")?;
                 self.set_client_flag(id, cmd, a.first())?;
             }
@@ -832,6 +832,10 @@ impl Wm {
                 let w = self.wins.get_mut(&id).unwrap();
                 w.pseudotile = parse_bool_arg(w.pseudotile, v)?;
             }
+            "sticky" => {
+                let on = parse_bool_arg(self.wins[&id].sticky, v)?;
+                self.set_sticky(id, on);
+            }
             "urgent" => {
                 let on = parse_bool_arg(self.wins[&id].urgent, v)?;
                 self.set_urgent(id, on);
@@ -887,6 +891,7 @@ impl Wm {
                 "floating" => b(w.floating),
                 "fullscreen" => b(w.fullscreen),
                 "pseudotile" => b(w.pseudotile),
+                "sticky" => b(w.sticky),
                 "urgent" => b(w.urgent),
                 _ => return Err(format!("unknown attribute \"{attr}\"")),
             });

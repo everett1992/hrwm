@@ -63,6 +63,11 @@ pub struct Win {
     pub floating: bool,
     pub pseudotile: bool,
     pub fullscreen: bool,
+    /// floating window that follows its monitor from tag to tag and stays
+    /// above fullscreen windows
+    pub sticky: bool,
+    /// the monitor and tag a sticky window was last seen shown on
+    sticky_at: Option<(ObjectId, usize)>,
     /// wants attention; cleared when focused
     pub urgent: bool,
     /// the window asked for async (tearing) presentation, e.g. a game
@@ -581,6 +586,7 @@ impl Wm {
         self.detach(id);
         let w = self.wins.get_mut(&id).unwrap();
         w.floating = on;
+        w.sticky &= on;
         if on
             && w.float_rect.is_none()
             && let Place::Tiled { slot } = place
@@ -591,6 +597,48 @@ impl Wm {
             w.float_rect = Some(Rect::new(cx - nw / 2, cy - nh / 2, nw, nh));
         }
         self.attach(id, tag, focused);
+    }
+
+    /// Sticky windows float, so making one sticky floats it.
+    pub fn set_sticky(&mut self, id: WinId, on: bool) {
+        if on {
+            self.set_floating(id, true);
+        }
+        let w = self.wins.get_mut(&id).unwrap();
+        w.sticky = on;
+        w.sticky_at = None;
+    }
+
+    /// Move sticky windows along when their monitor switches tags. A sticky
+    /// window moved to another tag (`move`, a rule) stays there instead.
+    fn follow_sticky(&mut self) {
+        let mut ids: Vec<WinId> = self
+            .wins
+            .values()
+            .filter(|w| w.sticky)
+            .map(|w| w.id)
+            .collect();
+        ids.sort();
+        for id in ids {
+            let w = &self.wins[&id];
+            let shown = match &w.sticky_at {
+                Some((oid, t)) if *t == w.tag => {
+                    self.monitors.iter().find(|m| m.oid == *oid).map(|m| m.tag)
+                }
+                _ => None,
+            };
+            if let Some(tag) = shown
+                && tag != w.tag
+            {
+                self.detach(id);
+                self.attach(id, tag, false);
+            }
+            let tag = self.wins[&id].tag;
+            let at = self
+                .monitor_of_tag(tag)
+                .map(|m| (self.monitors[m].oid.clone(), tag));
+            self.wins.get_mut(&id).unwrap().sticky_at = at;
+        }
     }
 
     /// Switch the focused monitor to a tag (`use`).
@@ -766,6 +814,7 @@ impl Wm {
         if self.binds_dirty {
             self.sync_bindings();
         }
+        self.follow_sticky();
         self.arrange();
         self.update_focus();
         self.save_state();
@@ -822,6 +871,7 @@ impl Wm {
                 w.floating = sw.floating;
                 w.pseudotile = sw.pseudotile;
                 w.fullscreen = sw.fullscreen;
+                w.sticky = sw.sticky && sw.floating;
                 w.float_rect = sw.float_rect;
             }
         }
@@ -890,6 +940,7 @@ impl Wm {
                         floating: w.floating,
                         pseudotile: w.pseudotile,
                         fullscreen: w.fullscreen,
+                        sticky: w.sticky,
                         float_rect: w.float_rect,
                     }
                 })
@@ -1071,7 +1122,8 @@ impl Wm {
                 fixed_size: w.fixed_size(),
             };
             let out = self.rules.apply(&props);
-            w.floating = out.floating.unwrap_or(false) || out.manage == Some(false);
+            w.sticky = out.sticky.unwrap_or(false);
+            w.floating = out.floating.unwrap_or(false) || out.manage == Some(false) || w.sticky;
             w.pseudotile = out.pseudotile.unwrap_or(false);
             w.fullscreen = out.fullscreen.unwrap_or(false);
             let mut tag = self.cur_tag();
@@ -1270,6 +1322,7 @@ impl Wm {
         let mut stack = Vec::new();
         let mut plan = Vec::new();
         let mut fullscreen_top = Vec::new();
+        let mut sticky_top = Vec::new();
 
         for ti in 0..self.tags.len() {
             let mon = self.monitor_of_tag(ti);
@@ -1376,8 +1429,11 @@ impl Wm {
 
             if visible {
                 for &id in &order {
-                    if self.wins[&id].place == Place::Fullscreen {
+                    let w = &self.wins[&id];
+                    if w.place == Place::Fullscreen {
                         fullscreen_top.push(id);
+                    } else if w.sticky && w.place == Place::Floating {
+                        sticky_top.push(id);
                     } else {
                         stack.push(id);
                     }
@@ -1430,6 +1486,7 @@ impl Wm {
 
         // focused window on top within its layer
         stack.extend(fullscreen_top);
+        stack.extend(sticky_top);
         self.stack = stack;
         self.deco_plan = plan;
 
@@ -1772,6 +1829,8 @@ impl Dispatch<RiverWindowManagerV1, ()> for Wm {
                         floating: false,
                         pseudotile: false,
                         fullscreen: false,
+                        sticky: false,
+                        sticky_at: None,
                         urgent: false,
                         wants_tearing: false,
                         fs_output: None,

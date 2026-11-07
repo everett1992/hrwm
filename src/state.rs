@@ -9,7 +9,7 @@
 //!
 //! ```text
 //! hrwm-state 1
-//! win      N IDENTIFIER FLOATING PSEUDOTILE FULLSCREEN FLOAT_RECT
+//! win      N IDENTIFIER FLOATING PSEUDOTILE FULLSCREEN FLOAT_RECT [STICKY]
 //! tag      NAME FLOATING FLOAT_FOCUS FLOATS TREE
 //! monitor  OUTPUT TAG
 //! focus    OUTPUT
@@ -30,6 +30,7 @@ pub struct SavedWin {
     pub floating: bool,
     pub pseudotile: bool,
     pub fullscreen: bool,
+    pub sticky: bool,
     pub float_rect: Option<Rect>,
 }
 
@@ -102,11 +103,12 @@ impl Saved {
                 .map(|r| format!("{} {} {} {}", r.x, r.y, r.w, r.h))
                 .unwrap_or_else(|| "-".into());
             out.push_str(&format!(
-                "win\t{n}\t{}\t{}\t{}\t{}\t{rect}\n",
+                "win\t{n}\t{}\t{}\t{}\t{}\t{rect}\t{}\n",
                 w.identifier,
                 flag(w.floating),
                 flag(w.pseudotile),
                 flag(w.fullscreen),
+                flag(w.sticky),
             ));
         }
         for t in &self.tags {
@@ -149,7 +151,16 @@ impl Saved {
         for line in lines {
             let f: Vec<&str> = line.split('\t').collect();
             match f.as_slice() {
-                ["win", n, ident, floating, pseudotile, fullscreen, rect] => {
+                [
+                    "win",
+                    n,
+                    ident,
+                    floating,
+                    pseudotile,
+                    fullscreen,
+                    rect,
+                    sticky @ ..,
+                ] if sticky.len() <= 1 => {
                     if parse_win(n)? as usize != s.wins.len() {
                         return Err(format!("window {n} out of order"));
                     }
@@ -171,6 +182,11 @@ impl Saved {
                         floating: parse_flag(floating)?,
                         pseudotile: parse_flag(pseudotile)?,
                         fullscreen: parse_flag(fullscreen)?,
+                        sticky: sticky
+                            .first()
+                            .map(|f| parse_flag(f))
+                            .transpose()?
+                            .unwrap_or(false),
                         float_rect,
                     });
                 }
@@ -305,9 +321,9 @@ mod tests {
     use super::*;
 
     const SAMPLE: &str = "hrwm-state 1
-win\t0\tabc123\t0\t0\t0\t-
-win\t1\tdef456\t1\t0\t0\t10 20 300 200
-win\t2\tghi789\t0\t1\t0\t-
+win\t0\tabc123\t0\t0\t0\t-\t0
+win\t1\tdef456\t1\t0\t0\t10 20 300 200\t1
+win\t2\tghi789\t0\t1\t0\t-\t0
 tag\tz\t0\t-\t-\t(split horizontal:0.333333:1 (clients vertical:0 0) (clients max:1 2 0))
 tag\tx\t1\t1\t1\t(clients auto:0)
 monitor\teDP-1\tz
@@ -320,10 +336,19 @@ focus\teDP-1
         let s = Saved::parse(SAMPLE).unwrap();
         assert_eq!(s.wins.len(), 3);
         assert_eq!(s.wins[1].float_rect, Some(Rect::new(10, 20, 300, 200)));
+        assert!(s.wins[1].sticky && !s.wins[0].sticky);
         assert_eq!(s.tags[1].floats, vec![1]);
         assert_eq!(s.tags[1].float_focus, Some(1));
         assert_eq!(s.focus.as_deref(), Some("eDP-1"));
         assert_eq!(s.to_text(), SAMPLE);
+    }
+
+    #[test]
+    fn reads_files_from_before_sticky() {
+        let old = SAMPLE.replace("\t0\n", "\n").replace("\t1\n", "\n");
+        let s = Saved::parse(&old).unwrap();
+        assert_eq!(s.wins.len(), 3);
+        assert!(s.wins.iter().all(|w| !w.sticky));
     }
 
     #[test]

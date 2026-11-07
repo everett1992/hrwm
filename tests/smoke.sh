@@ -130,6 +130,16 @@ for _ in $(seq 50); do kill -0 "$wm_pid" 2>/dev/null || break; sleep 0.1; done
 wait_restart "a kill"
 [[ $(state) == "$before" ]] || fail $'restart lost state:\n'"$before"$'\n---\n'"$(state)"
 
+# a sticky window floats and follows its monitor from tag to tag
+sticky=$("$hrwm" list_clients | awk '$2 == "one" { print $1; exit }')
+"$hrwm" attr clients.$sticky.sticky on
+[[ $("$hrwm" attr clients.$sticky.floating) == true ]] || fail "sticky did not float"
+"$hrwm" use three
+[[ $("$hrwm" attr clients.$sticky.tag) == three ]] || fail "sticky stayed on $("$hrwm" attr clients.$sticky.tag)"
+"$hrwm" attr clients.$sticky.sticky off
+"$hrwm" use one
+[[ $("$hrwm" attr clients.$sticky.tag) == three ]] || fail "unstuck window followed"
+
 # input settings: accepted (a headless river has no libinput devices to show them)
 "$hrwm" input tap on || fail "input tap on"
 "$hrwm" input accel_speed 0.2 touchpad || fail "input accel_speed"
