@@ -154,15 +154,65 @@ impl Pending {
     }
 }
 
-/// Write a command's response and close the connection.
-pub fn reply(mut stream: UnixStream, code: i32, output: &str) {
-    let _ = stream.set_nonblocking(false);
-    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(1)));
-    let _ = stream.write_all(format!("{code}\n{output}").as_bytes());
+/// A command's response, written as the client reads it so a client that
+/// stops reading never stalls the window manager (river waits on hrwm's
+/// manage sequence, where commands run). Dropping it closes the connection.
+pub struct Reply {
+    pub stream: UnixStream,
+    buf: Vec<u8>,
+    sent: usize,
+}
+
+impl Reply {
+    pub fn new(stream: UnixStream, code: i32, output: &str) -> Reply {
+        let _ = stream.set_nonblocking(true);
+        Reply {
+            stream,
+            buf: format!("{code}\n{output}").into_bytes(),
+            sent: 0,
+        }
+    }
+
+    /// Write what the socket takes. Ok(true) once it's all sent, Err if the
+    /// client went away.
+    pub fn poll(&mut self) -> Result<bool, ()> {
+        while self.sent < self.buf.len() {
+            match self.stream.write(&self.buf[self.sent..]) {
+                Ok(0) => return Err(()),
+                Ok(n) => self.sent += n,
+                Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(false),
+                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(_) => return Err(()),
+            }
+        }
+        Ok(true)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
+    use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn reply_does_not_wait_for_the_reader() {
+        let (ours, mut theirs) = UnixStream::pair().unwrap();
+        let output = "x".repeat(4 << 20);
+        let mut reply = super::Reply::new(ours, 0, &output);
+        // more than the socket buffer holds: returns instead of blocking
+        assert_eq!(reply.poll(), Ok(false));
+        let reader = std::thread::spawn(move || {
+            let mut got = String::new();
+            theirs.read_to_string(&mut got).unwrap();
+            got
+        });
+        while reply.poll() == Ok(false) {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        drop(reply);
+        assert_eq!(reader.join().unwrap(), format!("0\n{output}"));
+    }
+
     #[test]
     fn empty_arguments_survive() {
         let args: Vec<String> = ["keymap", "us", "", "caps:swapescape"]

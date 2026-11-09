@@ -40,7 +40,8 @@ River keeps windows open while the window manager restarts.
 - Add a unit test in `src/tree.rs` for layout or frame logic, and extend
   `tests/smoke.sh` for behaviour that needs a real compositor.
 - The files in `protocol/` are river's protocol definitions, copied verbatim.
-  Update them from a river release, don't edit them.
+  Update them from a river release, don't edit them. The exception is
+  `hrwm-activation-v1.xml`, which comes from a patched river, not a release.
 - Pull requests from outside contributors run CI only after a maintainer
   approves the workflow run.
 
