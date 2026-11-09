@@ -2026,6 +2026,9 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Wm {
             "wp_single_pixel_buffer_manager_v1" => {
                 state.pixels = Some(registry.bind(name, 1, qh, ()))
             }
+            // TODO: from contrib/'s river patch. Handle river_window_v1's
+            // activation_requested (v7, river PR #1492) once a river release
+            // has it, and drop this global; see contrib/README.md.
             "hrwm_activation_v1" => state.activation = river!(HrwmActivationV1),
             "river_touch_gestures_v1" => state.touch_gestures = river!(RiverTouchGesturesV1),
             _ => {}

@@ -41,7 +41,8 @@ River keeps windows open while the window manager restarts.
   `tests/smoke.sh` for behaviour that needs a real compositor.
 - The files in `protocol/` are river's protocol definitions, copied verbatim.
   Update them from a river release, don't edit them. The exception is
-  `hrwm-activation-v1.xml`, which comes from a patched river, not a release.
+  `hrwm-activation-v1.xml`, which comes from the river patch in `contrib/`;
+  change the two together.
 - Pull requests from outside contributors run CI only after a maintainer
   approves the workflow run.
 

@@ -52,8 +52,8 @@ command line: `hrwm` is both the window manager and its `herbstclient`.
   - windows asking for activation (xdg-activation-v1, X11 urgency) become
     urgent instead of taking focus, drawn with `window_border_urgent_color`
     until focused; `jumpto urgent` goes to them. Stock river drops these
-    requests, so this needs a river patched to add the
-    `hrwm-activation-v1` protocol in `protocol/`
+    requests, so this needs river patched with
+    [`contrib/river-0.5.0-hrwm-activation.patch`](contrib/README.md)
 
 ## Install
 
